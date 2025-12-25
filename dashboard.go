@@ -298,12 +298,22 @@ func resolveIPVersion(remoteAddr string) string {
 	// 移除端口号
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		// 如果无法分割（例如没有端口号），直接尝试解析整个字符串
+		// 如果无法分割（例如没有端口号，或者被 trusted_proxies 重写过），
+		// 直接尝试解析整个字符串
 		host = remoteAddr
 	}
 
-	// 移除可能的方括号（IPv6 格式 [::1]）
+	// 1. 去除首尾空白 (防止 Caddyfile 配置错误引入空格)
+	host = strings.TrimSpace(host)
+
+	// 2. 移除可能的方括号（IPv6 格式 [::1]）
 	host = strings.Trim(host, "[]")
+
+	// 3. 处理 Zone ID (例如 fe80::1%eth0)
+	// net.ParseIP 不支持 Zone ID，必须去除 % 及其后缀
+	if idx := strings.LastIndex(host, "%"); idx != -1 {
+		host = host[:idx]
+	}
 
 	ip := net.ParseIP(host)
 	if ip == nil {
