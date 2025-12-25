@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caddy 流量监控看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* CSS Variables for theming */
+        :root {
+            /* Light Mode Variables */
+            --bg-color: #ffffff;
+            --text-color: #111111;
+            --accent-color: #666666;
+            --meta-color: #888888;
+            
+            /* Glass Effect Variables */
+            --glass-overlay: rgba(255, 255, 255, 0.2);
+            --card-border: rgba(255, 255, 255, 0.2);
+            
+            --orb-color-1: rgba(0, 0, 0, 0.08);
+            --orb-color-2: rgba(0, 0, 0, 0.05);
+            
+            /* Animation Variables */
+            --transition-speed: 1.6s;
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            
+            /* Modern Font Stack */
+            --font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            
+            --spacing-unit: 1.5rem;
+            --card-bg: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Dark Mode Support (Automatic) */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #0a0a0a;
+                --text-color: #ffffff;
+                --accent-color: #a1a1a1;
+                --meta-color: #555555;
+                
+                --glass-overlay: rgba(0, 0, 0, 0.2);
+                --card-border: rgba(255, 255, 255, 0.08);
+                
+                --orb-color-1: rgba(255, 255, 255, 0.08);
+                --orb-color-2: rgba(255, 255, 255, 0.05);
+                --card-bg: rgba(20, 20, 20, 0.6);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Background Orbs */
+        .background-orbs {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: -2;
+            pointer-events: none;
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            opacity: 0.8;
+            animation: float 25s infinite ease-in-out alternate;
+        }
+
+        .orb-1 {
+            width: 70vw;
+            height: 70vw;
+            background: var(--orb-color-1);
+            top: -15%;
+            left: -15%;
+            animation-duration: 35s;
+        }
+
+        .orb-2 {
+            width: 60vw;
+            height: 60vw;
+            background: var(--orb-color-2);
+            bottom: -15%;
+            right: -15%;
+            animation-duration: 45s;
+            animation-delay: -5s;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(40px, 60px) scale(1.1); }
+            100% { transform: translate(-30px, 20px) scale(0.95); }
+        }
+
+        .frosted-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            backdrop-filter: blur(80px) saturate(120%);
+            -webkit-backdrop-filter: blur(80px) saturate(120%);
+            background: var(--glass-overlay);
+            pointer-events: none;
+        }
+
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: calc(var(--spacing-unit) * 2);
+            position: relative;
+            z-index: 10;
+        }
+
+        .content-wrapper {
+            padding: calc(var(--spacing-unit) * 3);
+            max-width: 1200px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeInUp var(--transition-speed) var(--ease-out-expo) forwards;
+            opacity: 0;
+            transform: translateY(40px);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            width: 100%;
+        }
+
+        .title {
+            font-size: 3rem;
+            font-weight: 800;
+            background: linear-gradient(180deg, var(--text-color) 20%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--accent-color);
+            font-size: 1.2rem;
+        }
+
+        /* Dashboard Grid */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 2rem;
+            width: 100%;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.02);
+            transition: transform 0.3s ease;
+            min-height: 340px;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        /* Specific card for the big number */
+        .card.metric-card {
+            justify-content: center;
+        }
+
+        .metric-big {
+            font-size: 6rem;
+            font-weight: 800;
+            color: var(--text-color);
+            line-height: 1;
+        }
+
+        .metric-label {
+            font-size: 1rem;
+            color: var(--meta-color);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 1rem;
+            font-weight: 600;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 250px;
+            position: relative;
+            margin-top: auto;
+            margin-bottom: auto;
+        }
+        
+        footer {
+            margin-top: 3rem;
+            color: var(--meta-color);
+            font-size: 0.8rem;
+            opacity: 0.6;
+        }
+
+        @keyframes fadeInUp {
+            0% { opacity: 0; transform: translateY(60px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="background-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+    </div>
+    <div class="frosted-overlay"></div>
+
+    <main>
+        <div class="content-wrapper">
+            <div class="header">
+                <h1 class="title">Traffic Stats</h1>
+                <p class="subtitle">Live Monitoring Dashboard</p>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- Total Requests -->
+                <div class="card metric-card">
+                    <div class="metric-big" id="totalRequests">0</div>
+                    <div class="metric-label">Total Requests</div>
+                </div>
+
+                <!-- Protocols -->
+                <div class="card">
+                    <div class="metric-label" style="margin-bottom: 1.5rem;">Connection Protocols</div>
+                    <div class="chart-container">
+                        <canvas id="protoChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Response Codes -->
+                <div class="card">
+                    <div class="metric-label" style="margin-bottom: 1.5rem;">Response Codes</div>
+                    <div class="chart-container">
+                        <canvas id="codeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <footer>
+                Generated by Caddy Traffic Stats Module
+            </footer>
+        </div>
+    </main>
+
+    <script>
+        // Data injected from Go using the json pipe
+        const stats = {{ . | json }};
+
+        // Update Total Requests
+        if (stats && stats.TotalRequests) {
+            document.getElementById('totalRequests').innerText = stats.TotalRequests.toLocaleString();
+        }
+
+        // Chart Config
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { 
+                    position: 'bottom', 
+                    labels: { 
+                        color: 'gray',
+                        font: { family: "'Inter', sans-serif" },
+                        padding: 20
+                    } 
+                }
+            },
+            elements: { 
+                arc: { 
+                    borderWidth: 2,
+                    borderColor: 'rgba(255,255,255,0.1)'
+                } 
+            },
+            cutout: '60%' // For doughnut charts
+        };
+
+        const palette = [
+            'rgba(54, 162, 235, 0.8)',   // Blue
+            'rgba(255, 99, 132, 0.8)',   // Red
+            'rgba(255, 206, 86, 0.8)',   // Yellow
+            'rgba(75, 192, 192, 0.8)',   // Teal
+            'rgba(153, 102, 255, 0.8)',  // Purple
+            'rgba(255, 159, 64, 0.8)',   // Orange
+            'rgba(199, 199, 199, 0.8)'   // Grey
+        ];
+
+        // Helper to prepare chart data
+        function createChartData(dataMap) {
+            if (!dataMap) return { labels: [], datasets: [] };
+            const labels = Object.keys(dataMap);
+            const data = Object.values(dataMap);
+            return {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: palette,
+                    hoverOffset: 10
+                }]
+            };
+        }
+
+        // Render Protocol Chart
+        if (stats.Protocols && Object.keys(stats.Protocols).length > 0) {
+            new Chart(document.getElementById('protoChart'), {
+                type: 'doughnut',
+                data: createChartData(stats.Protocols),
+                options: commonOptions
+            });
+        }
+
+        // Render Response Codes Chart
+        if (stats.Codes && Object.keys(stats.Codes).length > 0) {
+            new Chart(document.getElementById('codeChart'), {
+                type: 'pie',
+                data: createChartData(stats.Codes),
+                options: commonOptions
+            });
+        }
+    </script>
+</body>
+</html>
