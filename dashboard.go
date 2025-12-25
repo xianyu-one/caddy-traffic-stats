@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -71,11 +72,12 @@ func initTemplate() {
 // StatsData 核心统计数据结构
 type StatsData struct {
 	TotalRequests   int            `json:"TotalRequests"`
-	TotalWebSockets int            `json:"TotalWebSockets"` // 新增：WebSocket 握手成功计数
+	TotalWebSockets int            `json:"TotalWebSockets"` // WebSocket 握手成功计数
 	Protocols       map[string]int `json:"Protocols"`
 	Codes           map[string]int `json:"Codes"`
 	TLSVersions     map[string]int `json:"TLSVersions"`
 	Transports      map[string]int `json:"Transports"`
+	IPVersions      map[string]int `json:"IPVersions"`
 }
 
 // newStatsData 创建并初始化 StatsData
@@ -85,6 +87,7 @@ func newStatsData() *StatsData {
 		Codes:       make(map[string]int),
 		TLSVersions: make(map[string]int),
 		Transports:  make(map[string]int),
+		IPVersions:  make(map[string]int), // 初始化新 Map
 	}
 }
 
@@ -195,7 +198,7 @@ func (d *Dashboard) collectAndServe(w http.ResponseWriter, r *http.Request, next
 
 // --- 数据采集逻辑 ---
 
-// recordRequestInfo 记录请求阶段信息 (Protocol, TLS, Transport)
+// recordRequestInfo 记录请求阶段信息 (Protocol, TLS, Transport, IPVersion)
 func (d *Dashboard) recordRequestInfo(r *http.Request) {
 	// 1. 协议版本
 	proto := r.Proto
@@ -209,12 +212,16 @@ func (d *Dashboard) recordRequestInfo(r *http.Request) {
 	// 3. 传输层协议 (TCP/QUIC)
 	transport := resolveTransport(proto)
 
+	// 4. IP 版本 (新增)
+	ipVer := resolveIPVersion(r.RemoteAddr)
+
 	// 批量更新
 	d.batchUpdateStats(func(s *StatsData, limit int) {
 		s.TotalRequests++
 		safeIncrement(s.Protocols, proto, limit)
 		safeIncrement(s.TLSVersions, tlsVer, limit)
 		safeIncrement(s.Transports, transport, limit)
+		safeIncrement(s.IPVersions, ipVer, limit)
 	})
 }
 
@@ -285,6 +292,30 @@ func resolveTransport(proto string) string {
 	return "Other"
 }
 
+// resolveIPVersion 解析客户端 IP 是 IPv4 还是 IPv6。
+// 它处理 net.SplitHostPort 可能出现的错误，并提供默认值。
+func resolveIPVersion(remoteAddr string) string {
+	// 移除端口号
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		// 如果无法分割（例如没有端口号），直接尝试解析整个字符串
+		host = remoteAddr
+	}
+
+	// 移除可能的方括号（IPv6 格式 [::1]）
+	host = strings.Trim(host, "[]")
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "Unknown IP"
+	}
+
+	if ip.To4() != nil {
+		return "IPv4"
+	}
+	return "IPv6"
+}
+
 // --- 服务响应逻辑 ---
 
 // serveDashboard 渲染 HTML 页面
@@ -331,12 +362,13 @@ func (d *Dashboard) getSnapshot() *StatsData {
 func cloneStats(src *StatsData) *StatsData {
 	dst := newStatsData()
 	dst.TotalRequests = src.TotalRequests
-	dst.TotalWebSockets = src.TotalWebSockets // 拷贝 WebSocket 数据
+	dst.TotalWebSockets = src.TotalWebSockets
 
 	copyMap(dst.Protocols, src.Protocols)
 	copyMap(dst.Codes, src.Codes)
 	copyMap(dst.TLSVersions, src.TLSVersions)
 	copyMap(dst.Transports, src.Transports)
+	copyMap(dst.IPVersions, src.IPVersions)
 
 	return dst
 }
