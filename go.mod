@@ -1,4 +1,4 @@
-module caddy-traffic-stats
+module github.com/xianyu-one/caddy-traffic-stats
 
 go 1.25
 
