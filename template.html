@@ -4,354 +4,226 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Caddy 流量监控看板</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        /* CSS Variables for theming */
+        /* CSS Variables */
         :root {
-            /* Light Mode Variables */
-            --bg-color: #ffffff;
-            --text-color: #111111;
-            --accent-color: #666666;
-            --meta-color: #888888;
+            --bg-color: #f0f2f5;
+            --text-color: #1f2937;
+            --accent-color: #2563eb;
+            --meta-color: #6b7280;
+            --card-bg: rgba(255, 255, 255, 0.7);
+            --card-border: 1px solid rgba(255, 255, 255, 0.5);
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             
-            /* Glass Effect Variables */
-            --glass-overlay: rgba(255, 255, 255, 0.2);
-            --card-border: rgba(255, 255, 255, 0.2);
+            /* Metric Colors */
+            --color-2xx: #10b981;
+            --color-3xx: #3b82f6;
+            --color-4xx: #f59e0b;
+            --color-5xx: #ef4444;
+            --color-other: #9ca3af;
             
-            --orb-color-1: rgba(0, 0, 0, 0.08);
-            --orb-color-2: rgba(0, 0, 0, 0.05);
+            --color-proto: #8b5cf6; /* Purple */
+            --color-tls: #ec4899;   /* Pink */
+            --color-transport: #06b6d4; /* Cyan */
             
-            /* Animation Variables */
-            --transition-speed: 1.6s;
-            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-            
-            /* Modern Font Stack */
-            --font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            
-            --spacing-unit: 1.5rem;
-            --card-bg: rgba(255, 255, 255, 0.5);
+            --badge-bg-global: #7c3aed;
+            --badge-bg-instance: #059669;
         }
 
-        /* Dark Mode Support (Automatic) */
         @media (prefers-color-scheme: dark) {
             :root {
-                --bg-color: #0a0a0a;
-                --text-color: #ffffff;
-                --accent-color: #a1a1a1;
-                --meta-color: #555555;
-                
-                --glass-overlay: rgba(0, 0, 0, 0.2);
-                --card-border: rgba(255, 255, 255, 0.08);
-                
-                --orb-color-1: rgba(255, 255, 255, 0.08);
-                --orb-color-2: rgba(255, 255, 255, 0.05);
-                --card-bg: rgba(20, 20, 20, 0.6);
+                --bg-color: #111827;
+                --text-color: #f9fafb;
+                --accent-color: #60a5fa;
+                --meta-color: #9ca3af;
+                --card-bg: rgba(31, 41, 55, 0.7);
+                --card-border: 1px solid rgba(255, 255, 255, 0.1);
             }
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background-color: var(--bg-color);
             color: var(--text-color);
-            font-family: var(--font-family);
+            font-family: system-ui, -apple-system, sans-serif;
             min-height: 100vh;
             display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-            position: relative;
+            justify-content: center;
+            padding: 2rem;
+            line-height: 1.5;
         }
 
-        /* Background Orbs */
-        .background-orbs {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            z-index: -2;
-            pointer-events: none;
-        }
-
-        .orb {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(60px);
-            opacity: 0.8;
-            animation: float 25s infinite ease-in-out alternate;
-        }
-
-        .orb-1 {
-            width: 70vw;
-            height: 70vw;
-            background: var(--orb-color-1);
-            top: -15%;
-            left: -15%;
-            animation-duration: 35s;
-        }
-
-        .orb-2 {
-            width: 60vw;
-            height: 60vw;
-            background: var(--orb-color-2);
-            bottom: -15%;
-            right: -15%;
-            animation-duration: 45s;
-            animation-delay: -5s;
-        }
-
-        @keyframes float {
-            0% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(40px, 60px) scale(1.1); }
-            100% { transform: translate(-30px, 20px) scale(0.95); }
-        }
-
-        .frosted-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-            backdrop-filter: blur(80px) saturate(120%);
-            -webkit-backdrop-filter: blur(80px) saturate(120%);
-            background: var(--glass-overlay);
-            pointer-events: none;
-        }
-
-        main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: calc(var(--spacing-unit) * 2);
-            position: relative;
-            z-index: 10;
-        }
-
-        .content-wrapper {
-            padding: calc(var(--spacing-unit) * 3);
-            max-width: 1200px;
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            animation: fadeInUp var(--transition-speed) var(--ease-out-expo) forwards;
-            opacity: 0;
-            transform: translateY(40px);
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 3rem;
-            width: 100%;
-        }
-
+        .container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 2rem; }
+        .header { text-align: center; margin-bottom: 1rem; }
         .title {
-            font-size: 3rem;
-            font-weight: 800;
-            background: linear-gradient(180deg, var(--text-color) 20%, var(--accent-color) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
+            font-size: 2.5rem; font-weight: 800; margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--text-color), var(--accent-color));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;
         }
-
-        .subtitle {
-            color: var(--accent-color);
-            font-size: 1.2rem;
+        .badge {
+            font-size: 1rem; padding: 0.25em 0.8em; border-radius: 999px;
+            color: white; font-weight: 600; text-shadow: none; -webkit-text-fill-color: white;
         }
-
-        /* Dashboard Grid */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 2rem;
-            width: 100%;
-        }
+        .badge-global { background-color: var(--badge-bg-global); }
+        .badge-instance { background-color: var(--badge-bg-instance); }
+        .subtitle { color: var(--meta-color); font-size: 1.1rem; }
 
         .card {
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 24px;
-            padding: 2rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: flex-start;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02);
-            transition: transform 0.3s ease;
-            min-height: 340px;
+            background: var(--card-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: var(--card-border); border-radius: 1.5rem; padding: 2rem; box-shadow: var(--shadow);
+            transition: transform 0.2s;
         }
+        .card:hover { transform: translateY(-2px); }
 
-        .card:hover {
-            transform: translateY(-5px);
-        }
+        .metric-group { text-align: center; }
+        .metric-value { font-size: 5rem; font-weight: 900; line-height: 1; color: var(--text-color); font-variant-numeric: tabular-nums; }
+        .metric-label { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--meta-color); margin-top: 1rem; font-weight: 600; }
         
-        /* Specific card for the big number */
-        .card.metric-card {
-            justify-content: center;
-        }
+        .card-title { text-align: left; margin-bottom: 1.5rem; margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--meta-color); font-weight: 600; }
 
-        .metric-big {
-            font-size: 6rem;
-            font-weight: 800;
-            color: var(--text-color);
-            line-height: 1;
-        }
-
-        .metric-label {
-            font-size: 1rem;
-            color: var(--meta-color);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-top: 1rem;
-            font-weight: 600;
-        }
-
-        .chart-container {
-            width: 100%;
-            height: 250px;
-            position: relative;
-            margin-top: auto;
-            margin-bottom: auto;
-        }
+        .stats-list { display: flex; flex-direction: column; gap: 1.5rem; }
+        .stat-item { width: 100%; }
+        .stat-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.95rem; font-weight: 600; }
+        .stat-name { font-family: monospace; font-weight: 600; }
+        .progress-track { width: 100%; height: 12px; background-color: rgba(0, 0, 0, 0.1); border-radius: 6px; overflow: hidden; }
+        @media (prefers-color-scheme: dark) { .progress-track { background-color: rgba(255, 255, 255, 0.1); } }
+        .progress-bar { height: 100%; border-radius: 6px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); width: 0%; }
+        .empty-state { text-align: center; color: var(--meta-color); padding: 2rem; font-style: italic; }
         
-        footer {
-            margin-top: 3rem;
-            color: var(--meta-color);
-            font-size: 0.8rem;
-            opacity: 0.6;
-        }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
 
-        @keyframes fadeInUp {
-            0% { opacity: 0; transform: translateY(60px); }
-            100% { opacity: 1; transform: translateY(0); }
-        }
+        footer { text-align: center; font-size: 0.875rem; color: var(--meta-color); opacity: 0.8; margin-top: 2rem; }
     </style>
 </head>
 <body>
-    <div class="background-orbs">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-    </div>
-    <div class="frosted-overlay"></div>
+    <div class="container">
+        <header class="header">
+            <h1 class="title">
+                Caddy Traffic
+                <span class="badge {{ if eq .Scope "global" }}badge-global{{ else }}badge-instance{{ end }}">
+                    {{ .Scope | title }}
+                </span>
+            </h1>
+            <p class="subtitle">Real-time Monitoring Dashboard</p>
+        </header>
 
-    <main>
-        <div class="content-wrapper">
-            <div class="header">
-                <h1 class="title">Traffic Stats</h1>
-                <p class="subtitle">Live Monitoring Dashboard</p>
-            </div>
-
-            <div class="dashboard-grid">
-                <!-- Total Requests -->
-                <div class="card metric-card">
-                    <div class="metric-big" id="totalRequests">0</div>
-                    <div class="metric-label">Total Requests</div>
-                </div>
-
-                <!-- Protocols -->
-                <div class="card">
-                    <div class="metric-label" style="margin-bottom: 1.5rem;">Connection Protocols</div>
-                    <div class="chart-container">
-                        <canvas id="protoChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- Response Codes -->
-                <div class="card">
-                    <div class="metric-label" style="margin-bottom: 1.5rem;">Response Codes</div>
-                    <div class="chart-container">
-                        <canvas id="codeChart"></canvas>
-                    </div>
-                </div>
+        <!-- Top Metrics Grid -->
+        <div class="grid-2">
+            <!-- Total Requests -->
+            <div class="card metric-group">
+                <div class="metric-value" id="totalRequests">0</div>
+                <div class="metric-label">Total Requests</div>
             </div>
             
-            <footer>
-                Generated by Caddy Traffic Stats Module
-            </footer>
+            <!-- Total WebSockets -->
+            <div class="card metric-group">
+                <div class="metric-value" id="totalWebSockets">0</div>
+                <div class="metric-label">WebSocket Connects</div>
+            </div>
         </div>
-    </main>
+
+        <div class="grid-2">
+            <!-- Transports (TCP/QUIC) -->
+            <div class="card">
+                <div class="card-title">Transport</div>
+                <div id="transportList" class="stats-list"></div>
+            </div>
+
+            <!-- TLS Versions -->
+            <div class="card">
+                <div class="card-title">TLS Version</div>
+                <div id="tlsList" class="stats-list"></div>
+            </div>
+        </div>
+
+        <!-- Protocols -->
+        <div class="card">
+            <div class="card-title">HTTP Protocols</div>
+            <div id="protoList" class="stats-list"></div>
+        </div>
+
+        <!-- Response Codes -->
+        <div class="card">
+            <div class="card-title">Response Codes</div>
+            <div id="statsList" class="stats-list"></div>
+        </div>
+
+        <footer>Generated by Caddy Traffic Stats Module</footer>
+    </div>
 
     <script>
-        // Data injected from Go using the json pipe
-        const stats = {{ . | json }};
+        const data = {{ . | json }};
+        const stats = data.Stats;
 
-        // Update Total Requests
-        if (stats && stats.TotalRequests) {
-            document.getElementById('totalRequests').innerText = stats.TotalRequests.toLocaleString();
+        // Helper for Number Animation
+        function animateNumber(elementId, endValue) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            
+            if (endValue === 0) {
+                el.innerText = "0";
+                return;
+            }
+
+            let start = 0;
+            const duration = 1000;
+            const startTime = performance.now();
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const ease = 1 - Math.pow(1 - progress, 4);
+                el.innerText = Math.floor(start + (endValue - start) * ease).toLocaleString();
+                if (progress < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
         }
 
-        // Chart Config
-        const commonOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { 
-                    position: 'bottom', 
-                    labels: { 
-                        color: 'gray',
-                        font: { family: "'Inter', sans-serif" },
-                        padding: 20
-                    } 
-                }
-            },
-            elements: { 
-                arc: { 
-                    borderWidth: 2,
-                    borderColor: 'rgba(255,255,255,0.1)'
-                } 
-            },
-            cutout: '60%' // For doughnut charts
-        };
-
-        const palette = [
-            'rgba(54, 162, 235, 0.8)',   // Blue
-            'rgba(255, 99, 132, 0.8)',   // Red
-            'rgba(255, 206, 86, 0.8)',   // Yellow
-            'rgba(75, 192, 192, 0.8)',   // Teal
-            'rgba(153, 102, 255, 0.8)',  // Purple
-            'rgba(255, 159, 64, 0.8)',   // Orange
-            'rgba(199, 199, 199, 0.8)'   // Grey
-        ];
-
-        // Helper to prepare chart data
-        function createChartData(dataMap) {
-            if (!dataMap) return { labels: [], datasets: [] };
-            const labels = Object.keys(dataMap);
-            const data = Object.values(dataMap);
-            return {
-                labels: labels,
-                datasets: [{
-                    data: data,
-                    backgroundColor: palette,
-                    hoverOffset: 10
-                }]
-            };
+        // Animate Top Metrics
+        if (stats) {
+            if (stats.TotalRequests !== undefined) animateNumber('totalRequests', stats.TotalRequests);
+            if (stats.TotalWebSockets !== undefined) animateNumber('totalWebSockets', stats.TotalWebSockets);
         }
 
-        // Render Protocol Chart
-        if (stats.Protocols && Object.keys(stats.Protocols).length > 0) {
-            new Chart(document.getElementById('protoChart'), {
-                type: 'doughnut',
-                data: createChartData(stats.Protocols),
-                options: commonOptions
+        // Render Bars
+        function renderStatsBars(containerId, dataMap, colorVar) {
+            const container = document.getElementById(containerId);
+            if (!dataMap || Object.keys(dataMap).length === 0) {
+                container.innerHTML = '<div class="empty-state">No data</div>';
+                return;
+            }
+            const total = Object.values(dataMap).reduce((a, b) => a + b, 0);
+            Object.keys(dataMap).sort().forEach(key => {
+                const count = dataMap[key];
+                const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                let c = typeof colorVar === 'function' ? colorVar(key) : colorVar;
+                
+                const item = document.createElement('div');
+                item.className = 'stat-item';
+                item.innerHTML = `
+                    <div class="stat-header">
+                        <span class="stat-name">${key}</span>
+                        <span>${count.toLocaleString()} <span style="opacity:0.6;font-size:0.9em">(${percentage}%)</span></span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-bar" style="background-color: var(${c}); width: ${percentage}%"></div>
+                    </div>
+                `;
+                container.appendChild(item);
             });
         }
 
-        // Render Response Codes Chart
-        if (stats.Codes && Object.keys(stats.Codes).length > 0) {
-            new Chart(document.getElementById('codeChart'), {
-                type: 'pie',
-                data: createChartData(stats.Codes),
-                options: commonOptions
+        if (stats) {
+            renderStatsBars('transportList', stats.Transports, '--color-transport');
+            renderStatsBars('tlsList', stats.TLSVersions, '--color-tls');
+            renderStatsBars('protoList', stats.Protocols, '--color-proto');
+            renderStatsBars('statsList', stats.Codes, (code) => {
+                if (code.startsWith('2')) return '--color-2xx';
+                if (code.startsWith('3')) return '--color-3xx';
+                if (code.startsWith('4')) return '--color-4xx';
+                if (code.startsWith('5')) return '--color-5xx';
+                return '--color-other';
             });
         }
     </script>
