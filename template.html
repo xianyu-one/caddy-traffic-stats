@@ -27,11 +27,11 @@
             --color-transport: #06b6d4;
             --color-ip: #f97316;
             
-            /* New Security Colors */
-            --color-cipher: #6366f1; /* Indigo */
-            --color-curve: #8b5cf6;  /* Violet */
-            --color-alpn: #14b8a6;   /* Teal */
-            --color-hsts: #f43f5e;   /* Rose */
+            /* Security Colors */
+            --color-cipher: #6366f1;
+            --color-curve: #8b5cf6;
+            --color-alpn: #14b8a6;
+            --color-hsts: #f43f5e;
             
             --badge-bg-global: #7c3aed;
             --badge-bg-instance: #059669;
@@ -73,6 +73,7 @@
             font-size: 1rem; padding: 0.25em 0.8em; border-radius: 999px;
             color: white; font-weight: 600; text-shadow: none; -webkit-text-fill-color: white;
             background-clip: border-box; -webkit-background-clip: border-box;
+            display: none; /* Hidden by default until JS loads */
         }
         .badge-global { background-color: var(--badge-bg-global); }
         .badge-instance { background-color: var(--badge-bg-instance); }
@@ -94,26 +95,31 @@
         .stats-list { display: flex; flex-direction: column; gap: 1.5rem; }
         .stat-item { width: 100%; }
         .stat-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.95rem; font-weight: 600; }
-        /* Break long cipher suite names */
         .stat-name { font-family: monospace; font-weight: 600; word-break: break-all; max-width: 70%; }
         .progress-track { width: 100%; height: 12px; background-color: rgba(0, 0, 0, 0.1); border-radius: 6px; overflow: hidden; }
         @media (prefers-color-scheme: dark) { .progress-track { background-color: rgba(255, 255, 255, 0.1); } }
         .progress-bar { height: 100%; border-radius: 6px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); width: 0%; }
         .empty-state { text-align: center; color: var(--meta-color); padding: 2rem; font-style: italic; }
         
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
-        @media (max-width: 600px) { .grid-2 { grid-template-columns: 1fr; } }
+        /* Grid System for Dynamic Layout */
+        .dynamic-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .col-full { grid-column: span 2; }
+        .col-half { grid-column: span 1; }
+        
+        @media (max-width: 600px) { 
+            .dynamic-grid { grid-template-columns: 1fr; }
+            .col-full, .col-half { grid-column: span 1; }
+        }
 
         footer { text-align: center; font-size: 0.875rem; color: var(--meta-color); opacity: 0.8; margin-top: 2rem; }
 
-        /* Language Switcher Styles */
         .lang-switch { position: absolute; top: 1rem; right: 1rem; z-index: 100; }
         .lang-select {
             appearance: none; -webkit-appearance: none; padding: 0.5rem 2rem 0.5rem 1rem;
             border-radius: 0.5rem; border: 1px solid var(--card-border); background-color: var(--card-bg);
             color: var(--text-color); font-size: 0.875rem; font-weight: 500; cursor: pointer; outline: none;
             box-shadow: var(--shadow); backdrop-filter: blur(12px);
-            background-image: url("data:image/svg+xml,%3csvg xmlns='[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
             background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em;
         }
         .lang-select:hover { border-color: var(--accent-color); }
@@ -133,82 +139,22 @@
         <header class="header">
             <h1 class="title">
                 <span data-i18n="main_title">Caddy Traffic</span>
-                <span class="badge {{ if eq .Scope "global" }}badge-global{{ else }}badge-instance{{ end }}">
-                    {{ .Scope | title }}
-                </span>
+                <span id="scopeBadge" class="badge"></span>
             </h1>
             <p class="subtitle" data-i18n="subtitle">Real-time Monitoring Dashboard</p>
         </header>
 
-        <div class="grid-2">
-            <div class="card metric-group">
-                <div class="metric-value" id="totalRequests">0</div>
-                <div class="metric-label" data-i18n="total_requests">Total Requests</div>
-            </div>
-            
-            <div class="card metric-group">
-                <div class="metric-value" id="totalWebSockets">0</div>
-                <div class="metric-label" data-i18n="total_websockets">WebSocket Connects</div>
-            </div>
-        </div>
-
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-title" data-i18n="transport">Transport</div>
-                <div id="transportList" class="stats-list"></div>
-            </div>
-
-            <div class="card">
-                <div class="card-title" data-i18n="tls_version">TLS Version</div>
-                <div id="tlsList" class="stats-list"></div>
-            </div>
-        </div>
-
-        <!-- Security Details Section -->
-         <div class="card">
-            <div class="card-title" data-i18n="cipher_suites">Cipher Suites</div>
-            <div id="cipherList" class="stats-list"></div>
-        </div>
-
-        <div class="grid-2">
-            <div class="card">
-                <div class="card-title" data-i18n="alpn">ALPN (Negotiated)</div>
-                <div id="alpnList" class="stats-list"></div>
-            </div>
-             <div class="card">
-                <div class="card-title" data-i18n="hsts_status">HSTS Status</div>
-                <div id="hstsList" class="stats-list"></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-title" data-i18n="curves">Key Exchange (Curves)</div>
-            <div id="curveList" class="stats-list"></div>
-        </div>
-        <!-- End Security Section -->
-
-        <div class="card">
-            <div class="card-title" data-i18n="ip_version">IP Version</div>
-            <div id="ipList" class="stats-list"></div>
-        </div>
-
-        <div class="card">
-            <div class="card-title" data-i18n="http_protocols">HTTP Protocols</div>
-            <div id="protoList" class="stats-list"></div>
-        </div>
-
-        <div class="card">
-            <div class="card-title" data-i18n="response_codes">Response Codes</div>
-            <div id="statsList" class="stats-list"></div>
+        <!-- Dynamic Content Container -->
+        <div id="dashboardContent" class="dynamic-grid">
+            <!-- Cards will be injected here by JS -->
+            <div class="col-full empty-state" id="loadingState">Loading dashboard configuration...</div>
         </div>
 
         <footer data-i18n="footer">Generated by Caddy Traffic Stats Module</footer>
     </div>
 
     <script>
-        const data = {{ . | json }};
-        const stats = data.Stats;
-
+        // --- Translations ---
         const translations = {
             "en": {
                 "page_title": "Caddy Traffic Dashboard",
@@ -226,7 +172,8 @@
                 "http_protocols": "HTTP Protocols",
                 "response_codes": "Response Codes",
                 "no_data": "No data",
-                "footer": "Generated by Caddy Traffic Stats Module"
+                "footer": "Generated by Caddy Traffic Stats Module",
+                "loading": "Loading..."
             },
             "zh-CN": {
                 "page_title": "Caddy 流量监控看板",
@@ -244,7 +191,8 @@
                 "http_protocols": "HTTP 协议",
                 "response_codes": "响应状态码",
                 "no_data": "暂无数据",
-                "footer": "由 Caddy Traffic Stats 模块生成"
+                "footer": "由 Caddy Traffic Stats 模块生成",
+                "loading": "加载中..."
             },
             "zh-TW": {
                 "page_title": "Caddy 流量監控看板",
@@ -262,7 +210,8 @@
                 "http_protocols": "HTTP 協議",
                 "response_codes": "響應狀態碼",
                 "no_data": "暫無數據",
-                "footer": "由 Caddy Traffic Stats 模組生成"
+                "footer": "由 Caddy Traffic Stats 模組生成",
+                "loading": "載入中..."
             },
             "ja": {
                 "page_title": "Caddy トラフィック監視",
@@ -280,116 +229,210 @@
                 "http_protocols": "HTTP プロトコル",
                 "response_codes": "レスポンスコード",
                 "no_data": "データなし",
-                "footer": "Caddy Traffic Stats モジュールによって生成"
+                "footer": "Caddy Traffic Stats モジュールによって生成",
+                "loading": "読み込み中..."
             }
         };
 
+        // --- Global State ---
         let currentLang = 'en';
+        let dashboardConfig = null; // Will hold the DiscoveryResponse
+        let currentStats = null;    // Will hold the stats data
+
+        // --- Core Logic ---
+
+        async function initDashboard() {
+            detectLanguage();
+            
+            try {
+                // 1. Fetch Configuration (Discovery)
+                const configRes = await fetch('./discovery');
+                if (!configRes.ok) throw new Error("Failed to fetch config");
+                dashboardConfig = await configRes.json();
+                
+                // 2. Build UI Layout
+                renderScopeBadge(dashboardConfig.scope);
+                buildLayout(dashboardConfig.layout);
+                
+                // 3. Initial Translation
+                applyTranslations();
+
+                // 4. Start Data Polling
+                fetchData();
+                setInterval(fetchData, 60000); // Poll every 60s
+
+            } catch (err) {
+                document.getElementById('loadingState').innerText = "Error loading dashboard: " + err.message;
+                console.error(err);
+            }
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch('./data');
+                if (!res.ok) return;
+                currentStats = await res.json();
+                updateDashboardValues();
+            } catch (e) {
+                console.warn("Fetch data failed", e);
+            }
+        }
+
+        // --- UI Construction ---
+
+        function renderScopeBadge(scope) {
+            const badge = document.getElementById('scopeBadge');
+            badge.style.display = 'inline-block';
+            badge.className = `badge ${scope === 'global' ? 'badge-global' : 'badge-instance'}`;
+            // Capitalize
+            badge.innerText = scope.charAt(0).toUpperCase() + scope.slice(1);
+        }
+
+        function buildLayout(layoutItems) {
+            const container = document.getElementById('dashboardContent');
+            container.innerHTML = ''; // Clear loading state
+
+            layoutItems.forEach(item => {
+                const cardWrapper = document.createElement('div');
+                // Grid class: col-full or col-half
+                cardWrapper.className = item.grid_width === 'half' ? 'col-half' : 'col-full';
+                
+                // Internal HTML based on type
+                if (item.type === 'metric') {
+                    cardWrapper.innerHTML = `
+                        <div class="card metric-group">
+                            <div class="metric-value" id="val-${item.id}">0</div>
+                            <div class="metric-label" data-i18n="${item.title_key}"></div>
+                        </div>
+                    `;
+                } else if (item.type === 'chart') {
+                    cardWrapper.innerHTML = `
+                        <div class="card">
+                            <div class="card-title" data-i18n="${item.title_key}"></div>
+                            <div id="list-${item.id}" class="stats-list">
+                                <div class="empty-state" data-i18n="loading"></div>
+                            </div>
+                        </div>
+                    `;
+                }
+                container.appendChild(cardWrapper);
+            });
+        }
+
+        function updateDashboardValues() {
+            if (!dashboardConfig || !currentStats) return;
+
+            dashboardConfig.layout.forEach(item => {
+                const dataValue = currentStats[item.data_key];
+                
+                if (item.type === 'metric') {
+                    animateNumber(`val-${item.id}`, dataValue || 0);
+                } else if (item.type === 'chart') {
+                    renderChartList(`list-${item.id}`, dataValue, item);
+                }
+            });
+            
+            // Re-apply translation for "No Data" states that might have been re-rendered
+            // Note: This is a simplified approach; optimal would be translating inside renderChartList
+        }
+
+        function renderChartList(containerId, dataMap, configItem) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (!dataMap || Object.keys(dataMap).length === 0) {
+                const noDataText = translations[currentLang] ? translations[currentLang].no_data : "No data";
+                container.innerHTML = `<div class="empty-state">${noDataText}</div>`;
+                return;
+            }
+
+            // Create a temporary fragment to minimize reflows
+            const fragment = document.createDocumentFragment();
+            const total = Object.values(dataMap).reduce((a, b) => a + b, 0);
+
+            // Sort logic: Descending by value
+            const keys = Object.keys(dataMap).sort((a, b) => dataMap[b] - dataMap[a]);
+
+            keys.forEach(key => {
+                const count = dataMap[key];
+                const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+                
+                // Determine color
+                let colorVar = '--color-other';
+                if (configItem.color_mode === 'static' && configItem.color_var) {
+                    colorVar = configItem.color_var;
+                } else if (configItem.color_mode === 'status_code') {
+                    if (key.startsWith('2')) colorVar = '--color-2xx';
+                    else if (key.startsWith('3')) colorVar = '--color-3xx';
+                    else if (key.startsWith('4')) colorVar = '--color-4xx';
+                    else if (key.startsWith('5')) colorVar = '--color-5xx';
+                }
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'stat-item';
+                itemDiv.innerHTML = `
+                    <div class="stat-header">
+                        <span class="stat-name">${key}</span>
+                        <span>${count.toLocaleString()} <span style="opacity:0.6;font-size:0.9em">(${percentage}%)</span></span>
+                    </div>
+                    <div class="progress-track">
+                        <div class="progress-bar" style="background-color: var(${colorVar}); width: ${percentage}%"></div>
+                    </div>
+                `;
+                fragment.appendChild(itemDiv);
+            });
+
+            container.innerHTML = '';
+            container.appendChild(fragment);
+        }
+
+        function animateNumber(elementId, endValue) {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+            // Simple check to avoid restarting animation if value hasn't changed significantly
+            // In a real app, store previous value. Here we just set it.
+            // For smoother updates on high frequency, you might want to debounce this.
+            el.innerText = endValue.toLocaleString(); 
+        }
+
+        // --- i18n Logic ---
 
         function detectLanguage() {
             const storedLang = localStorage.getItem('caddy_stats_lang');
-            if (storedLang && translations[storedLang]) return storedLang;
-            const browserLang = navigator.language || navigator.userLanguage;
-            if (browserLang.toLowerCase().includes('zh-cn')) return 'zh-CN';
-            if (browserLang.toLowerCase().includes('zh-tw') || browserLang.toLowerCase().includes('zh-hk')) return 'zh-TW';
-            if (browserLang.toLowerCase().includes('ja')) return 'ja';
-            return 'en';
+            if (storedLang && translations[storedLang]) {
+                currentLang = storedLang;
+            } else {
+                const browserLang = navigator.language || navigator.userLanguage;
+                if (browserLang.toLowerCase().includes('zh-cn')) currentLang = 'zh-CN';
+                else if (browserLang.toLowerCase().includes('zh-tw') || browserLang.toLowerCase().includes('zh-hk')) currentLang = 'zh-TW';
+                else if (browserLang.toLowerCase().includes('ja')) currentLang = 'ja';
+                else currentLang = 'en';
+            }
+            document.getElementById('languageSelect').value = currentLang;
+            document.documentElement.lang = currentLang;
         }
 
         function changeLanguage(lang) {
             if (!translations[lang]) return;
             currentLang = lang;
             localStorage.setItem('caddy_stats_lang', lang);
-            document.getElementById('languageSelect').value = lang;
             document.documentElement.lang = lang;
-            
-            const t = translations[lang];
+            applyTranslations();
+            // Re-render data to update "No Data" text
+            updateDashboardValues(); 
+        }
+
+        function applyTranslations() {
+            const t = translations[currentLang];
             document.title = t.page_title;
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
                 if (t[key]) el.innerText = t[key];
             });
-
-            if (stats) {
-                 ['transportList', 'tlsList', 'ipList', 'protoList', 'statsList', 'cipherList', 'curveList', 'alpnList', 'hstsList'].forEach(id => {
-                     document.getElementById(id).innerHTML = '';
-                 });
-                 
-                 renderStatsBars('transportList', stats.Transports, '--color-transport');
-                 renderStatsBars('tlsList', stats.TLSVersions, '--color-tls');
-                 renderStatsBars('ipList', stats.IPVersions, '--color-ip');
-                 renderStatsBars('protoList', stats.Protocols, '--color-proto');
-                 // Render New Security Stats
-                 renderStatsBars('cipherList', stats.CipherSuites, '--color-cipher');
-                 renderStatsBars('curveList', stats.Curves, '--color-curve');
-                 renderStatsBars('alpnList', stats.ALPN, '--color-alpn');
-                 renderStatsBars('hstsList', stats.HSTS, '--color-hsts');
-
-                 renderStatsBars('statsList', stats.Codes, (code) => {
-                    if (code.startsWith('2')) return '--color-2xx';
-                    if (code.startsWith('3')) return '--color-3xx';
-                    if (code.startsWith('4')) return '--color-4xx';
-                    if (code.startsWith('5')) return '--color-5xx';
-                    return '--color-other';
-                });
-            }
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            const lang = detectLanguage();
-            changeLanguage(lang);
-        });
-
-        function animateNumber(elementId, endValue) {
-            const el = document.getElementById(elementId);
-            if (!el) return;
-            if (endValue === 0) { el.innerText = "0"; return; }
-            let start = 0;
-            const duration = 1000;
-            const startTime = performance.now();
-            function update(currentTime) {
-                const elapsed = currentTime - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                const ease = 1 - Math.pow(1 - progress, 4);
-                el.innerText = Math.floor(start + (endValue - start) * ease).toLocaleString();
-                if (progress < 1) requestAnimationFrame(update);
-            }
-            requestAnimationFrame(update);
-        }
-
-        if (stats) {
-            if (stats.TotalRequests !== undefined) animateNumber('totalRequests', stats.TotalRequests);
-            if (stats.TotalWebSockets !== undefined) animateNumber('totalWebSockets', stats.TotalWebSockets);
-        }
-
-        function renderStatsBars(containerId, dataMap, colorVar) {
-            const container = document.getElementById(containerId);
-            if (!dataMap || Object.keys(dataMap).length === 0) {
-                const noDataText = translations[currentLang] ? translations[currentLang].no_data : "No data";
-                container.innerHTML = `<div class="empty-state">${noDataText}</div>`;
-                return;
-            }
-            const total = Object.values(dataMap).reduce((a, b) => a + b, 0);
-            // Sort by count descending for better readability of long cipher lists
-            Object.keys(dataMap).sort((a, b) => dataMap[b] - dataMap[a]).forEach(key => {
-                const count = dataMap[key];
-                const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
-                let c = typeof colorVar === 'function' ? colorVar(key) : colorVar;
-                
-                const item = document.createElement('div');
-                item.className = 'stat-item';
-                item.innerHTML = `
-                    <div class="stat-header">
-                        <span class="stat-name">${key}</span>
-                        <span>${count.toLocaleString()} <span style="opacity:0.6;font-size:0.9em">(${percentage}%)</span></span>
-                    </div>
-                    <div class="progress-track">
-                        <div class="progress-bar" style="background-color: var(${c}); width: ${percentage}%"></div>
-                    </div>
-                `;
-                container.appendChild(item);
-            });
-        }
+        // --- Initialization ---
+        window.addEventListener('DOMContentLoaded', initDashboard);
     </script>
 </body>
 </html>

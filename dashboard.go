@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
 	"strconv"
@@ -22,49 +21,19 @@ import (
 //go:embed template.html
 var dashboardHTML string
 
-var parsedTemplate *template.Template
-
 // --- 全局变量与初始化 ---
 
 var (
 	// globalStats 存储全局聚合统计数据
-	globalStats = newStatsData()
-	globalMu    sync.RWMutex
-	// globalMaxEntries 全局 Map 最大条目数 (防内存泄漏)
+	globalStats      = newStatsData()
+	globalMu         sync.RWMutex
 	globalMaxEntries = 100000
 )
 
 func init() {
 	caddy.RegisterModule(Dashboard{})
 	httpcaddyfile.RegisterHandlerDirective("traffic_dashboard", parseCaddyfile)
-	// 注册执行顺序：默认在 reverse_proxy 之前
 	httpcaddyfile.RegisterDirectiveOrder("traffic_dashboard", httpcaddyfile.Before, "reverse_proxy")
-
-	initTemplate()
-}
-
-// initTemplate 解析内嵌 HTML 模板
-func initTemplate() {
-	tmpl := template.New("dashboard").Funcs(template.FuncMap{
-		// json 序列化函数，用于在模板中注入数据
-		"json": func(v interface{}) template.JS {
-			a, _ := json.Marshal(v)
-			return template.JS(a)
-		},
-		// title 首字母大写函数
-		"title": func(s string) string {
-			if len(s) == 0 {
-				return ""
-			}
-			return strings.ToUpper(s[:1]) + s[1:]
-		},
-	})
-
-	var err error
-	parsedTemplate, err = tmpl.Parse(dashboardHTML)
-	if err != nil {
-		panic("failed to parse embedded dashboard template: " + err.Error())
-	}
 }
 
 // --- 数据结构定义 ---
@@ -73,18 +42,34 @@ func initTemplate() {
 type StatsData struct {
 	TotalRequests   int            `json:"TotalRequests"`
 	TotalWebSockets int            `json:"TotalWebSockets"`
-	Protocols       map[string]int `json:"Protocols"`    // HTTP 协议版本
-	Codes           map[string]int `json:"Codes"`        // 响应状态码
-	TLSVersions     map[string]int `json:"TLSVersions"`  // TLS 版本
-	CipherSuites    map[string]int `json:"CipherSuites"` // 加密套件
-	Curves          map[string]int `json:"Curves"`       // [新增] 密钥交换算法 (CurveID) - Requires Go 1.24+
-	Transports      map[string]int `json:"Transports"`   // 传输层
-	IPVersions      map[string]int `json:"IPVersions"`   // IP 版本
-	ALPN            map[string]int `json:"ALPN"`         // ALPN 协商结果
-	HSTS            map[string]int `json:"HSTS"`         // HSTS 状态
+	Protocols       map[string]int `json:"Protocols"`
+	Codes           map[string]int `json:"Codes"`
+	TLSVersions     map[string]int `json:"TLSVersions"`
+	CipherSuites    map[string]int `json:"CipherSuites"`
+	Curves          map[string]int `json:"Curves"` // Go 1.24+
+	Transports      map[string]int `json:"Transports"`
+	IPVersions      map[string]int `json:"IPVersions"`
+	ALPN            map[string]int `json:"ALPN"`
+	HSTS            map[string]int `json:"HSTS"`
 }
 
-// newStatsData 创建并初始化 StatsData
+// LayoutItem 定义前端卡片的布局和属性
+type LayoutItem struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`                 // "metric" (数字) 或 "chart" (条形图)
+	TitleKey  string `json:"title_key"`            // i18n 键值
+	DataKey   string `json:"data_key"`             // 对应 StatsData 中的字段名
+	GridWidth string `json:"grid_width"`           // "half" 或 "full"
+	ColorVar  string `json:"color_var,omitempty"`  // CSS 变量名 (用于单一颜色)
+	ColorMode string `json:"color_mode,omitempty"` // "static" 或 "status_code" (用于动态颜色)
+}
+
+// DiscoveryResponse 服务发现响应结构
+type DiscoveryResponse struct {
+	Scope  string       `json:"scope"`
+	Layout []LayoutItem `json:"layout"`
+}
+
 func newStatsData() *StatsData {
 	return &StatsData{
 		Protocols:    make(map[string]int),
@@ -101,24 +86,18 @@ func newStatsData() *StatsData {
 
 // Dashboard Caddy 模块结构体
 type Dashboard struct {
-	// Path 看板访问路径 (默认 /traffic)
-	Path string `json:"path,omitempty"`
-	// Scope 统计范围: "global" 或 "instance"
-	Scope string `json:"scope,omitempty"`
-	// MaxMemoryMB 内存限制 (MB)
-	MaxMemoryMB int `json:"max_memory_mb,omitempty"`
-	// EnableServe 是否开启 Web 服务和 API
-	EnableServe bool `json:"enable_serve,omitempty"`
-	// DisableCollect 是否禁用当前站点的统计
-	DisableCollect bool `json:"disable_collect,omitempty"`
+	Path           string `json:"path,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	MaxMemoryMB    int    `json:"max_memory_mb,omitempty"`
+	EnableServe    bool   `json:"enable_serve,omitempty"`
+	DisableCollect bool   `json:"disable_collect,omitempty"`
 
 	logger        *zap.Logger
 	instanceStats *StatsData
 	instanceMu    sync.RWMutex
-	maxEntries    int // 运行时计算的 Map 限制
+	maxEntries    int
 }
 
-// CaddyModule 实现 Caddy 模块接口
 func (Dashboard) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "http.handlers.traffic_dashboard",
@@ -126,25 +105,19 @@ func (Dashboard) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// Provision 模块初始化
 func (d *Dashboard) Provision(ctx caddy.Context) error {
 	d.logger = ctx.Logger(d)
-
 	d.provisionDefaults()
 	d.provisionLimits()
 	d.instanceStats = newStatsData()
-
 	return nil
 }
 
-// provisionDefaults 设置默认配置
 func (d *Dashboard) provisionDefaults() {
 	if d.Path == "" {
 		d.Path = "/traffic"
 	}
-	// 移除 Path 末尾的斜杠，统一处理
 	d.Path = strings.TrimRight(d.Path, "/")
-
 	if d.Scope == "" {
 		d.Scope = "instance"
 	}
@@ -153,98 +126,73 @@ func (d *Dashboard) provisionDefaults() {
 	}
 }
 
-// provisionLimits 计算内存与条目限制
 func (d *Dashboard) provisionLimits() {
-	// 估算每个条目占用 256 字节
 	d.maxEntries = (d.MaxMemoryMB * 1024 * 1024) / 256
 	if d.maxEntries < 1000 {
 		d.maxEntries = 1000
 	}
 }
 
-// ServeHTTP 请求处理主入口
 func (d *Dashboard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	// 1. 处理服务请求 (Dashboard 或 API)
 	if d.EnableServe {
 		if strings.HasPrefix(r.URL.Path, d.Path) {
-			// 精确匹配 Dashboard 路径
+			// 1. 静态 HTML 页面
 			if r.URL.Path == d.Path || r.URL.Path == d.Path+"/" {
-				return d.serveDashboard(w)
+				return d.serveStatic(w)
 			}
-			// 匹配 API 路径 (e.g. /traffic/api)
-			if r.URL.Path == d.Path+"/api" {
-				return d.serveAPI(w)
+			// 2. 数据 API
+			if r.URL.Path == d.Path+"/data" {
+				return d.serveData(w)
+			}
+			// 3. 发现/配置 API
+			if r.URL.Path == d.Path+"/discovery" {
+				return d.serveDiscovery(w)
 			}
 		}
 	}
 
-	// 2. 检查是否跳过采集
 	if d.DisableCollect {
 		return next.ServeHTTP(w, r)
 	}
 
-	// 3. 执行采集并继续
 	return d.collectAndServe(w, r, next)
 }
 
-// collectAndServe 采集逻辑包装
 func (d *Dashboard) collectAndServe(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	// 记录请求阶段信息
 	d.recordRequestInfo(r)
-
-	// 判断是否为 WebSocket 升级请求 (不区分大小写)
 	isWSAttempt := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
-
 	rec := caddyhttp.NewResponseRecorder(w, nil, nil)
 	err := next.ServeHTTP(rec, r)
-
-	// 记录响应阶段信息，并根据响应码判断 WebSocket 是否建立成功
 	d.recordResponseInfo(rec, isWSAttempt)
-
 	return err
 }
 
-// --- 数据采集逻辑 ---
+// --- 数据采集逻辑 (保持不变) ---
 
-// recordRequestInfo 记录请求阶段信息
 func (d *Dashboard) recordRequestInfo(r *http.Request) {
-	// 1. 协议版本
 	proto := r.Proto
 	if proto == "" {
 		proto = "Unknown"
 	}
-
-	// 2. TLS 详情 (版本, 算法, Curve, ALPN)
 	tlsVer, cipherSuite, curve, alpn := resolveTLSDetails(r.TLS)
-
-	// 3. 传输层协议 (TCP/QUIC)
 	transport := resolveTransport(proto)
-
-	// 4. IP 版本
 	ipVer := resolveIPVersion(r.RemoteAddr)
 
-	// 批量更新
 	d.batchUpdateStats(func(s *StatsData, limit int) {
 		s.TotalRequests++
 		safeIncrement(s.Protocols, proto, limit)
 		safeIncrement(s.TLSVersions, tlsVer, limit)
 		safeIncrement(s.Transports, transport, limit)
 		safeIncrement(s.IPVersions, ipVer, limit)
-		// 安全字段
 		safeIncrement(s.CipherSuites, cipherSuite, limit)
 		safeIncrement(s.Curves, curve, limit)
 		safeIncrement(s.ALPN, alpn, limit)
 	})
 }
 
-// recordResponseInfo 记录响应阶段信息 (Status Code, WebSocket, HSTS)
 func (d *Dashboard) recordResponseInfo(rec caddyhttp.ResponseRecorder, isWSAttempt bool) {
 	code := fmt.Sprintf("%d", rec.Status())
-
-	// 只有当请求头包含 Upgrade: websocket 且响应码为 101 时，才视为成功的 WebSocket 连接
 	isWSSuccess := isWSAttempt && rec.Status() == 101
-
-	// 检查 HSTS 响应头
 	hstsStatus := "Disabled"
 	if val := rec.Header().Get("Strict-Transport-Security"); val != "" {
 		hstsStatus = "Enabled"
@@ -252,40 +200,34 @@ func (d *Dashboard) recordResponseInfo(rec caddyhttp.ResponseRecorder, isWSAttem
 
 	d.batchUpdateStats(func(s *StatsData, limit int) {
 		safeIncrement(s.Codes, code, limit)
-		safeIncrement(s.HSTS, hstsStatus, limit) // 记录 HSTS
+		safeIncrement(s.HSTS, hstsStatus, limit)
 		if isWSSuccess {
 			s.TotalWebSockets++
 		}
 	})
 }
 
-// batchUpdateStats 辅助函数：同时更新全局和实例数据
 func (d *Dashboard) batchUpdateStats(updateFn func(*StatsData, int)) {
-	// 更新全局
 	globalMu.Lock()
 	updateFn(globalStats, globalMaxEntries)
 	globalMu.Unlock()
 
-	// 更新实例
 	d.instanceMu.Lock()
 	updateFn(d.instanceStats, d.maxEntries)
 	d.instanceMu.Unlock()
 }
 
-// safeIncrement Map 安全自增
 func safeIncrement(m map[string]int, key string, limit int) {
 	if len(m) < limit || m[key] > 0 {
 		m[key]++
 	}
 }
 
-// resolveTLSDetails 解析 TLS 版本、加密套件、CurveID 和 ALPN
+// resolveTLSDetails, resolveTransport, resolveIPVersion 保持不变...
 func resolveTLSDetails(state *tls.ConnectionState) (ver, suite, curve, alpn string) {
 	if state == nil {
 		return "No TLS", "No TLS", "None", "None"
 	}
-
-	// 1. TLS Version
 	switch state.Version {
 	case tls.VersionTLS10:
 		ver = "TLS 1.0"
@@ -298,48 +240,34 @@ func resolveTLSDetails(state *tls.ConnectionState) (ver, suite, curve, alpn stri
 	default:
 		ver = "Unknown TLS"
 	}
-
-	// 2. Cipher Suite (加密算法)
 	suite = tls.CipherSuiteName(state.CipherSuite)
 	if suite == "" {
 		suite = fmt.Sprintf("0x%04x", state.CipherSuite)
 	}
-
-	// 3. CurveID (Key Exchange) - Requires Go 1.24+
-	// state.CurveID 是 Go 1.24 新增字段。如果您的编译器版本低于 1.24，此处会导致编译错误。
-	// 尝试直接使用 String() 方法获取名称（如 X25519, P-256, X25519MLKEM768）
+	// Go 1.24+ check
 	curveID := state.CurveID
 	curve = curveID.String()
 	if curve == "" || strings.HasPrefix(curve, "CurveID(") {
-		// 备用格式化
 		curve = fmt.Sprintf("Curve(0x%04x)", uint16(curveID))
 	}
-
-	// 4. ALPN (NegotiatedProtocol)
 	alpn = state.NegotiatedProtocol
 	if alpn == "" {
 		alpn = "No ALPN"
 	}
-
 	return
 }
 
-// resolveTransport 解析传输层协议
 func resolveTransport(proto string) string {
-	// HTTP/3 基于 QUIC
 	if strings.HasPrefix(proto, "HTTP/3") {
 		return "QUIC"
 	}
-	// HTTP/1.x 和 HTTP/2 通常基于 TCP (h2c 也是 TCP)
 	if strings.HasPrefix(proto, "HTTP/1") || strings.HasPrefix(proto, "HTTP/2") {
 		return "TCP"
 	}
 	return "Other"
 }
 
-// resolveIPVersion 解析客户端 IP 是 IPv4 还是 IPv6
 func resolveIPVersion(remoteAddr string) string {
-	// 移除端口号
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
@@ -361,26 +289,55 @@ func resolveIPVersion(remoteAddr string) string {
 
 // --- 服务响应逻辑 ---
 
-// serveDashboard 渲染 HTML 页面
-func (d *Dashboard) serveDashboard(w http.ResponseWriter) error {
+// serveStatic 直接返回静态 HTML
+func (d *Dashboard) serveStatic(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	snapshot := d.getSnapshot()
-	data := struct {
-		Scope string
-		Stats *StatsData
-	}{Scope: d.Scope, Stats: snapshot}
-	return parsedTemplate.Execute(w, data)
+	// 简单粗暴，直接写回字符串，不再进行模板解析
+	_, err := w.Write([]byte(dashboardHTML))
+	return err
 }
 
-// serveAPI 返回 JSON 数据 (RESTful)
-func (d *Dashboard) serveAPI(w http.ResponseWriter) error {
+// serveDiscovery 返回 UI 布局配置
+func (d *Dashboard) serveDiscovery(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+	// 定义布局配置 (后端控制前端渲染逻辑)
+	layout := []LayoutItem{
+		// 顶部指标
+		{ID: "reqs", Type: "metric", TitleKey: "total_requests", DataKey: "TotalRequests", GridWidth: "half"},
+		{ID: "ws", Type: "metric", TitleKey: "total_websockets", DataKey: "TotalWebSockets", GridWidth: "half"},
+
+		// 协议与版本
+		{ID: "transport", Type: "chart", TitleKey: "transport", DataKey: "Transports", GridWidth: "half", ColorVar: "--color-transport", ColorMode: "static"},
+		{ID: "tls", Type: "chart", TitleKey: "tls_version", DataKey: "TLSVersions", GridWidth: "half", ColorVar: "--color-tls", ColorMode: "static"},
+
+		// 安全详情
+		{ID: "cipher", Type: "chart", TitleKey: "cipher_suites", DataKey: "CipherSuites", GridWidth: "full", ColorVar: "--color-cipher", ColorMode: "static"},
+		{ID: "alpn", Type: "chart", TitleKey: "alpn", DataKey: "ALPN", GridWidth: "half", ColorVar: "--color-alpn", ColorMode: "static"},
+		{ID: "hsts", Type: "chart", TitleKey: "hsts_status", DataKey: "HSTS", GridWidth: "half", ColorVar: "--color-hsts", ColorMode: "static"},
+		{ID: "curves", Type: "chart", TitleKey: "curves", DataKey: "Curves", GridWidth: "full", ColorVar: "--color-curve", ColorMode: "static"},
+
+		// 其它
+		{ID: "ip", Type: "chart", TitleKey: "ip_version", DataKey: "IPVersions", GridWidth: "full", ColorVar: "--color-ip", ColorMode: "static"},
+		{ID: "proto", Type: "chart", TitleKey: "http_protocols", DataKey: "Protocols", GridWidth: "full", ColorVar: "--color-proto", ColorMode: "static"},
+		{ID: "codes", Type: "chart", TitleKey: "response_codes", DataKey: "Codes", GridWidth: "full", ColorMode: "status_code"},
+	}
+
+	resp := DiscoveryResponse{
+		Scope:  d.Scope,
+		Layout: layout,
+	}
+
+	return json.NewEncoder(w).Encode(resp)
+}
+
+// serveData 返回实时统计数据
+func (d *Dashboard) serveData(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	snapshot := d.getSnapshot()
-	enc := json.NewEncoder(w)
-	return enc.Encode(snapshot)
+	return json.NewEncoder(w).Encode(snapshot)
 }
 
-// getSnapshot 根据 Scope 获取对应的数据快照
 func (d *Dashboard) getSnapshot() *StatsData {
 	if d.Scope == "global" {
 		globalMu.RLock()
@@ -392,27 +349,22 @@ func (d *Dashboard) getSnapshot() *StatsData {
 	return cloneStats(d.instanceStats)
 }
 
-// cloneStats 深拷贝 StatsData
 func cloneStats(src *StatsData) *StatsData {
 	dst := newStatsData()
 	dst.TotalRequests = src.TotalRequests
 	dst.TotalWebSockets = src.TotalWebSockets
-
 	copyMap(dst.Protocols, src.Protocols)
 	copyMap(dst.Codes, src.Codes)
 	copyMap(dst.TLSVersions, src.TLSVersions)
 	copyMap(dst.Transports, src.Transports)
 	copyMap(dst.IPVersions, src.IPVersions)
-
 	copyMap(dst.CipherSuites, src.CipherSuites)
-	copyMap(dst.Curves, src.Curves) // 拷贝 Curves
+	copyMap(dst.Curves, src.Curves)
 	copyMap(dst.ALPN, src.ALPN)
 	copyMap(dst.HSTS, src.HSTS)
-
 	return dst
 }
 
-// copyMap 辅助 Map 拷贝
 func copyMap(dst, src map[string]int) {
 	for k, v := range src {
 		dst[k] = v
@@ -421,7 +373,6 @@ func copyMap(dst, src map[string]int) {
 
 // --- 配置解析 ---
 
-// UnmarshalCaddyfile 解析 Caddyfile
 func (d *Dashboard) UnmarshalCaddyfile(dDisp *caddyfile.Dispenser) error {
 	for dDisp.Next() {
 		for dDisp.NextBlock(0) {
