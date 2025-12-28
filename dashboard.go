@@ -72,22 +72,30 @@ func initTemplate() {
 // StatsData 核心统计数据结构
 type StatsData struct {
 	TotalRequests   int            `json:"TotalRequests"`
-	TotalWebSockets int            `json:"TotalWebSockets"` // WebSocket 握手成功计数
-	Protocols       map[string]int `json:"Protocols"`
-	Codes           map[string]int `json:"Codes"`
-	TLSVersions     map[string]int `json:"TLSVersions"`
-	Transports      map[string]int `json:"Transports"`
-	IPVersions      map[string]int `json:"IPVersions"`
+	TotalWebSockets int            `json:"TotalWebSockets"`
+	Protocols       map[string]int `json:"Protocols"`    // HTTP 协议版本
+	Codes           map[string]int `json:"Codes"`        // 响应状态码
+	TLSVersions     map[string]int `json:"TLSVersions"`  // TLS 版本
+	CipherSuites    map[string]int `json:"CipherSuites"` // 加密套件
+	Curves          map[string]int `json:"Curves"`       // [新增] 密钥交换算法 (CurveID) - Requires Go 1.24+
+	Transports      map[string]int `json:"Transports"`   // 传输层
+	IPVersions      map[string]int `json:"IPVersions"`   // IP 版本
+	ALPN            map[string]int `json:"ALPN"`         // ALPN 协商结果
+	HSTS            map[string]int `json:"HSTS"`         // HSTS 状态
 }
 
 // newStatsData 创建并初始化 StatsData
 func newStatsData() *StatsData {
 	return &StatsData{
-		Protocols:   make(map[string]int),
-		Codes:       make(map[string]int),
-		TLSVersions: make(map[string]int),
-		Transports:  make(map[string]int),
-		IPVersions:  make(map[string]int), // 初始化新 Map
+		Protocols:    make(map[string]int),
+		Codes:        make(map[string]int),
+		TLSVersions:  make(map[string]int),
+		CipherSuites: make(map[string]int),
+		Curves:       make(map[string]int),
+		Transports:   make(map[string]int),
+		IPVersions:   make(map[string]int),
+		ALPN:         make(map[string]int),
+		HSTS:         make(map[string]int),
 	}
 }
 
@@ -198,7 +206,7 @@ func (d *Dashboard) collectAndServe(w http.ResponseWriter, r *http.Request, next
 
 // --- 数据采集逻辑 ---
 
-// recordRequestInfo 记录请求阶段信息 (Protocol, TLS, Transport, IPVersion)
+// recordRequestInfo 记录请求阶段信息
 func (d *Dashboard) recordRequestInfo(r *http.Request) {
 	// 1. 协议版本
 	proto := r.Proto
@@ -206,13 +214,13 @@ func (d *Dashboard) recordRequestInfo(r *http.Request) {
 		proto = "Unknown"
 	}
 
-	// 2. TLS 版本
-	tlsVer := resolveTLSVersion(r.TLS)
+	// 2. TLS 详情 (版本, 算法, Curve, ALPN)
+	tlsVer, cipherSuite, curve, alpn := resolveTLSDetails(r.TLS)
 
 	// 3. 传输层协议 (TCP/QUIC)
 	transport := resolveTransport(proto)
 
-	// 4. IP 版本 (新增)
+	// 4. IP 版本
 	ipVer := resolveIPVersion(r.RemoteAddr)
 
 	// 批量更新
@@ -222,18 +230,29 @@ func (d *Dashboard) recordRequestInfo(r *http.Request) {
 		safeIncrement(s.TLSVersions, tlsVer, limit)
 		safeIncrement(s.Transports, transport, limit)
 		safeIncrement(s.IPVersions, ipVer, limit)
+		// 安全字段
+		safeIncrement(s.CipherSuites, cipherSuite, limit)
+		safeIncrement(s.Curves, curve, limit)
+		safeIncrement(s.ALPN, alpn, limit)
 	})
 }
 
-// recordResponseInfo 记录响应阶段信息 (Status Code, WebSocket)
+// recordResponseInfo 记录响应阶段信息 (Status Code, WebSocket, HSTS)
 func (d *Dashboard) recordResponseInfo(rec caddyhttp.ResponseRecorder, isWSAttempt bool) {
 	code := fmt.Sprintf("%d", rec.Status())
 
 	// 只有当请求头包含 Upgrade: websocket 且响应码为 101 时，才视为成功的 WebSocket 连接
 	isWSSuccess := isWSAttempt && rec.Status() == 101
 
+	// 检查 HSTS 响应头
+	hstsStatus := "Disabled"
+	if val := rec.Header().Get("Strict-Transport-Security"); val != "" {
+		hstsStatus = "Enabled"
+	}
+
 	d.batchUpdateStats(func(s *StatsData, limit int) {
 		safeIncrement(s.Codes, code, limit)
+		safeIncrement(s.HSTS, hstsStatus, limit) // 记录 HSTS
 		if isWSSuccess {
 			s.TotalWebSockets++
 		}
@@ -260,23 +279,49 @@ func safeIncrement(m map[string]int, key string, limit int) {
 	}
 }
 
-// resolveTLSVersion 解析 TLS 版本
-func resolveTLSVersion(state *tls.ConnectionState) string {
+// resolveTLSDetails 解析 TLS 版本、加密套件、CurveID 和 ALPN
+func resolveTLSDetails(state *tls.ConnectionState) (ver, suite, curve, alpn string) {
 	if state == nil {
-		return "No TLS"
+		return "No TLS", "No TLS", "None", "None"
 	}
+
+	// 1. TLS Version
 	switch state.Version {
 	case tls.VersionTLS10:
-		return "TLS 1.0"
+		ver = "TLS 1.0"
 	case tls.VersionTLS11:
-		return "TLS 1.1"
+		ver = "TLS 1.1"
 	case tls.VersionTLS12:
-		return "TLS 1.2"
+		ver = "TLS 1.2"
 	case tls.VersionTLS13:
-		return "TLS 1.3"
+		ver = "TLS 1.3"
 	default:
-		return "Unknown TLS"
+		ver = "Unknown TLS"
 	}
+
+	// 2. Cipher Suite (加密算法)
+	suite = tls.CipherSuiteName(state.CipherSuite)
+	if suite == "" {
+		suite = fmt.Sprintf("0x%04x", state.CipherSuite)
+	}
+
+	// 3. CurveID (Key Exchange) - Requires Go 1.24+
+	// state.CurveID 是 Go 1.24 新增字段。如果您的编译器版本低于 1.24，此处会导致编译错误。
+	// 尝试直接使用 String() 方法获取名称（如 X25519, P-256, X25519MLKEM768）
+	curveID := state.CurveID
+	curve = curveID.String()
+	if curve == "" || strings.HasPrefix(curve, "CurveID(") {
+		// 备用格式化
+		curve = fmt.Sprintf("Curve(0x%04x)", uint16(curveID))
+	}
+
+	// 4. ALPN (NegotiatedProtocol)
+	alpn = state.NegotiatedProtocol
+	if alpn == "" {
+		alpn = "No ALPN"
+	}
+
+	return
 }
 
 // resolveTransport 解析传输层协议
@@ -292,34 +337,22 @@ func resolveTransport(proto string) string {
 	return "Other"
 }
 
-// resolveIPVersion 解析客户端 IP 是 IPv4 还是 IPv6。
-// 它处理 net.SplitHostPort 可能出现的错误，并提供默认值。
+// resolveIPVersion 解析客户端 IP 是 IPv4 还是 IPv6
 func resolveIPVersion(remoteAddr string) string {
 	// 移除端口号
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		// 如果无法分割（例如没有端口号，或者被 trusted_proxies 重写过），
-		// 直接尝试解析整个字符串
 		host = remoteAddr
 	}
-
-	// 1. 去除首尾空白 (防止 Caddyfile 配置错误引入空格)
 	host = strings.TrimSpace(host)
-
-	// 2. 移除可能的方括号（IPv6 格式 [::1]）
 	host = strings.Trim(host, "[]")
-
-	// 3. 处理 Zone ID (例如 fe80::1%eth0)
-	// net.ParseIP 不支持 Zone ID，必须去除 % 及其后缀
 	if idx := strings.LastIndex(host, "%"); idx != -1 {
 		host = host[:idx]
 	}
-
 	ip := net.ParseIP(host)
 	if ip == nil {
 		return "Unknown IP"
 	}
-
 	if ip.To4() != nil {
 		return "IPv4"
 	}
@@ -331,26 +364,18 @@ func resolveIPVersion(remoteAddr string) string {
 // serveDashboard 渲染 HTML 页面
 func (d *Dashboard) serveDashboard(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
 	snapshot := d.getSnapshot()
-
 	data := struct {
 		Scope string
 		Stats *StatsData
-	}{
-		Scope: d.Scope,
-		Stats: snapshot,
-	}
-
+	}{Scope: d.Scope, Stats: snapshot}
 	return parsedTemplate.Execute(w, data)
 }
 
 // serveAPI 返回 JSON 数据 (RESTful)
 func (d *Dashboard) serveAPI(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-
 	snapshot := d.getSnapshot()
-
 	enc := json.NewEncoder(w)
 	return enc.Encode(snapshot)
 }
@@ -362,7 +387,6 @@ func (d *Dashboard) getSnapshot() *StatsData {
 		defer globalMu.RUnlock()
 		return cloneStats(globalStats)
 	}
-
 	d.instanceMu.RLock()
 	defer d.instanceMu.RUnlock()
 	return cloneStats(d.instanceStats)
@@ -379,6 +403,11 @@ func cloneStats(src *StatsData) *StatsData {
 	copyMap(dst.TLSVersions, src.TLSVersions)
 	copyMap(dst.Transports, src.Transports)
 	copyMap(dst.IPVersions, src.IPVersions)
+
+	copyMap(dst.CipherSuites, src.CipherSuites)
+	copyMap(dst.Curves, src.Curves) // 拷贝 Curves
+	copyMap(dst.ALPN, src.ALPN)
+	copyMap(dst.HSTS, src.HSTS)
 
 	return dst
 }

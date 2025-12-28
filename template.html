@@ -22,10 +22,16 @@
             --color-5xx: #ef4444;
             --color-other: #9ca3af;
             
-            --color-proto: #8b5cf6; /* Purple */
-            --color-tls: #ec4899;   /* Pink */
-            --color-transport: #06b6d4; /* Cyan */
-            --color-ip: #f97316;    /* Orange */
+            --color-proto: #8b5cf6;
+            --color-tls: #ec4899;
+            --color-transport: #06b6d4;
+            --color-ip: #f97316;
+            
+            /* New Security Colors */
+            --color-cipher: #6366f1; /* Indigo */
+            --color-curve: #8b5cf6;  /* Violet */
+            --color-alpn: #14b8a6;   /* Teal */
+            --color-hsts: #f43f5e;   /* Rose */
             
             --badge-bg-global: #7c3aed;
             --badge-bg-instance: #059669;
@@ -52,10 +58,10 @@
             justify-content: center;
             padding: 2rem;
             line-height: 1.5;
-            position: relative; /* For absolute positioning of lang switch */
+            position: relative;
         }
 
-        .container { width: 100%; max-width: 800px; display: flex; flex-direction: column; gap: 2rem; }
+        .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 2rem; }
         .header { text-align: center; margin-bottom: 1rem; }
         .title {
             font-size: 2.5rem; font-weight: 800; margin-bottom: 0.5rem;
@@ -66,9 +72,7 @@
         .badge {
             font-size: 1rem; padding: 0.25em 0.8em; border-radius: 999px;
             color: white; font-weight: 600; text-shadow: none; -webkit-text-fill-color: white;
-            /* Reset background clip for badge text */
-            background-clip: border-box;
-            -webkit-background-clip: border-box;
+            background-clip: border-box; -webkit-background-clip: border-box;
         }
         .badge-global { background-color: var(--badge-bg-global); }
         .badge-instance { background-color: var(--badge-bg-instance); }
@@ -90,7 +94,8 @@
         .stats-list { display: flex; flex-direction: column; gap: 1.5rem; }
         .stat-item { width: 100%; }
         .stat-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.95rem; font-weight: 600; }
-        .stat-name { font-family: monospace; font-weight: 600; }
+        /* Break long cipher suite names */
+        .stat-name { font-family: monospace; font-weight: 600; word-break: break-all; max-width: 70%; }
         .progress-track { width: 100%; height: 12px; background-color: rgba(0, 0, 0, 0.1); border-radius: 6px; overflow: hidden; }
         @media (prefers-color-scheme: dark) { .progress-track { background-color: rgba(255, 255, 255, 0.1); } }
         .progress-bar { height: 100%; border-radius: 6px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); width: 0%; }
@@ -102,34 +107,16 @@
         footer { text-align: center; font-size: 0.875rem; color: var(--meta-color); opacity: 0.8; margin-top: 2rem; }
 
         /* Language Switcher Styles */
-        .lang-switch {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
-            z-index: 100;
-        }
+        .lang-switch { position: absolute; top: 1rem; right: 1rem; z-index: 100; }
         .lang-select {
-            appearance: none;
-            -webkit-appearance: none;
-            padding: 0.5rem 2rem 0.5rem 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid var(--card-border);
-            background-color: var(--card-bg);
-            color: var(--text-color);
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            outline: none;
-            box-shadow: var(--shadow);
-            backdrop-filter: blur(12px);
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-            background-position: right 0.5rem center;
-            background-repeat: no-repeat;
-            background-size: 1.5em 1.5em;
+            appearance: none; -webkit-appearance: none; padding: 0.5rem 2rem 0.5rem 1rem;
+            border-radius: 0.5rem; border: 1px solid var(--card-border); background-color: var(--card-bg);
+            color: var(--text-color); font-size: 0.875rem; font-weight: 500; cursor: pointer; outline: none;
+            box-shadow: var(--shadow); backdrop-filter: blur(12px);
+            background-image: url("data:image/svg+xml,%3csvg xmlns='[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em;
         }
-        .lang-select:hover {
-            border-color: var(--accent-color);
-        }
+        .lang-select:hover { border-color: var(--accent-color); }
     </style>
 </head>
 <body>
@@ -177,6 +164,29 @@
             </div>
         </div>
 
+        <!-- Security Details Section -->
+         <div class="card">
+            <div class="card-title" data-i18n="cipher_suites">Cipher Suites</div>
+            <div id="cipherList" class="stats-list"></div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title" data-i18n="alpn">ALPN (Negotiated)</div>
+                <div id="alpnList" class="stats-list"></div>
+            </div>
+             <div class="card">
+                <div class="card-title" data-i18n="hsts_status">HSTS Status</div>
+                <div id="hstsList" class="stats-list"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title" data-i18n="curves">Key Exchange (Curves)</div>
+            <div id="curveList" class="stats-list"></div>
+        </div>
+        <!-- End Security Section -->
+
         <div class="card">
             <div class="card-title" data-i18n="ip_version">IP Version</div>
             <div id="ipList" class="stats-list"></div>
@@ -196,11 +206,9 @@
     </div>
 
     <script>
-        // Go Template Data Injection
         const data = {{ . | json }};
         const stats = data.Stats;
 
-        // --- i18n Logic Start ---
         const translations = {
             "en": {
                 "page_title": "Caddy Traffic Dashboard",
@@ -210,6 +218,10 @@
                 "total_websockets": "WebSocket Connects",
                 "transport": "Transport",
                 "tls_version": "TLS Version",
+                "cipher_suites": "Cipher Suites",
+                "curves": "Key Exchange (Curves)",
+                "alpn": "ALPN (Negotiated)",
+                "hsts_status": "HSTS Status",
                 "ip_version": "IP Version",
                 "http_protocols": "HTTP Protocols",
                 "response_codes": "Response Codes",
@@ -224,6 +236,10 @@
                 "total_websockets": "WebSocket 连接数",
                 "transport": "传输层协议",
                 "tls_version": "TLS 版本",
+                "cipher_suites": "加密套件 (Cipher Suites)",
+                "curves": "密钥交换 (Curves)",
+                "alpn": "应用层协商 (ALPN)",
+                "hsts_status": "HSTS 状态",
                 "ip_version": "IP 版本",
                 "http_protocols": "HTTP 协议",
                 "response_codes": "响应状态码",
@@ -238,6 +254,10 @@
                 "total_websockets": "WebSocket 連線數",
                 "transport": "傳輸層協議",
                 "tls_version": "TLS 版本",
+                "cipher_suites": "加密套件 (Cipher Suites)",
+                "curves": "密鑰交換 (Curves)",
+                "alpn": "應用層協商 (ALPN)",
+                "hsts_status": "HSTS 狀態",
                 "ip_version": "IP 版本",
                 "http_protocols": "HTTP 協議",
                 "response_codes": "響應狀態碼",
@@ -252,6 +272,10 @@
                 "total_websockets": "WebSocket 接続数",
                 "transport": "トランスポート層",
                 "tls_version": "TLS バージョン",
+                "cipher_suites": "暗号スイート",
+                "curves": "鍵交換 (Curves)",
+                "alpn": "ALPN (交渉済み)",
+                "hsts_status": "HSTS ステータス",
                 "ip_version": "IP バージョン",
                 "http_protocols": "HTTP プロトコル",
                 "response_codes": "レスポンスコード",
@@ -263,19 +287,13 @@
         let currentLang = 'en';
 
         function detectLanguage() {
-            // Check localStorage
             const storedLang = localStorage.getItem('caddy_stats_lang');
-            if (storedLang && translations[storedLang]) {
-                return storedLang;
-            }
-            
-            // Check Browser
+            if (storedLang && translations[storedLang]) return storedLang;
             const browserLang = navigator.language || navigator.userLanguage;
             if (browserLang.toLowerCase().includes('zh-cn')) return 'zh-CN';
             if (browserLang.toLowerCase().includes('zh-tw') || browserLang.toLowerCase().includes('zh-hk')) return 'zh-TW';
             if (browserLang.toLowerCase().includes('ja')) return 'ja';
-            
-            return 'en'; // Default
+            return 'en';
         }
 
         function changeLanguage(lang) {
@@ -286,31 +304,27 @@
             document.documentElement.lang = lang;
             
             const t = translations[lang];
-
-            // Update Title
             document.title = t.page_title;
-
-            // Update text content for elements with data-i18n
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
-                if (t[key]) {
-                    el.innerText = t[key];
-                }
+                if (t[key]) el.innerText = t[key];
             });
 
-            // Re-render lists to update "No data" text if necessary
             if (stats) {
-                 // Clear and re-render to apply localized "No data" string
-                 document.getElementById('transportList').innerHTML = '';
-                 document.getElementById('tlsList').innerHTML = '';
-                 document.getElementById('ipList').innerHTML = '';
-                 document.getElementById('protoList').innerHTML = '';
-                 document.getElementById('statsList').innerHTML = '';
+                 ['transportList', 'tlsList', 'ipList', 'protoList', 'statsList', 'cipherList', 'curveList', 'alpnList', 'hstsList'].forEach(id => {
+                     document.getElementById(id).innerHTML = '';
+                 });
                  
                  renderStatsBars('transportList', stats.Transports, '--color-transport');
                  renderStatsBars('tlsList', stats.TLSVersions, '--color-tls');
                  renderStatsBars('ipList', stats.IPVersions, '--color-ip');
                  renderStatsBars('protoList', stats.Protocols, '--color-proto');
+                 // Render New Security Stats
+                 renderStatsBars('cipherList', stats.CipherSuites, '--color-cipher');
+                 renderStatsBars('curveList', stats.Curves, '--color-curve');
+                 renderStatsBars('alpnList', stats.ALPN, '--color-alpn');
+                 renderStatsBars('hstsList', stats.HSTS, '--color-hsts');
+
                  renderStatsBars('statsList', stats.Codes, (code) => {
                     if (code.startsWith('2')) return '--color-2xx';
                     if (code.startsWith('3')) return '--color-3xx';
@@ -321,24 +335,15 @@
             }
         }
 
-        // Initialize Language
         window.addEventListener('DOMContentLoaded', () => {
             const lang = detectLanguage();
             changeLanguage(lang);
         });
-        // --- i18n Logic End ---
 
-
-        // Helper for Number Animation
         function animateNumber(elementId, endValue) {
             const el = document.getElementById(elementId);
             if (!el) return;
-            
-            if (endValue === 0) {
-                el.innerText = "0";
-                return;
-            }
-
+            if (endValue === 0) { el.innerText = "0"; return; }
             let start = 0;
             const duration = 1000;
             const startTime = performance.now();
@@ -352,23 +357,21 @@
             requestAnimationFrame(update);
         }
 
-        // Animate Top Metrics
         if (stats) {
             if (stats.TotalRequests !== undefined) animateNumber('totalRequests', stats.TotalRequests);
             if (stats.TotalWebSockets !== undefined) animateNumber('totalWebSockets', stats.TotalWebSockets);
         }
 
-        // Render Bars
         function renderStatsBars(containerId, dataMap, colorVar) {
             const container = document.getElementById(containerId);
             if (!dataMap || Object.keys(dataMap).length === 0) {
-                // Use current language for empty state
                 const noDataText = translations[currentLang] ? translations[currentLang].no_data : "No data";
                 container.innerHTML = `<div class="empty-state">${noDataText}</div>`;
                 return;
             }
             const total = Object.values(dataMap).reduce((a, b) => a + b, 0);
-            Object.keys(dataMap).sort().forEach(key => {
+            // Sort by count descending for better readability of long cipher lists
+            Object.keys(dataMap).sort((a, b) => dataMap[b] - dataMap[a]).forEach(key => {
                 const count = dataMap[key];
                 const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
                 let c = typeof colorVar === 'function' ? colorVar(key) : colorVar;
