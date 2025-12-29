@@ -1,0 +1,347 @@
+/* --- 1. Core Variables --- */
+:root {
+    /* Light Mode */
+    --bg-color: #ffffff;
+    --text-color: #111111;
+    --accent-color: #666666;
+    --meta-color: #888888;
+    
+    /* Glass Effect & Spotlight */
+    --glass-overlay: rgba(255, 255, 255, 0.4);
+    --card-bg: rgba(255, 255, 255, 0.65);
+    /* 默认边框非常淡，靠 spotlight 提亮 */
+    --card-border: rgba(0, 0, 0, 0.05); 
+    --spotlight-color: rgba(0, 0, 0, 0.15); /* 聚光灯颜色 */
+    
+    --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+    
+    /* Orbs */
+    --orb-color-1: rgba(0, 0, 0, 0.08);
+    --orb-color-2: rgba(0, 0, 0, 0.05);
+    
+    /* Animations */
+    --transition-speed: 0.6s;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    
+    /* Fonts */
+    --font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --spacing-unit: 1.5rem;
+
+    /* Status Colors */
+    --color-2xx: #10b981;
+    --color-3xx: #3b82f6;
+    --color-4xx: #f59e0b;
+    --color-5xx: #ef4444;
+    --color-other: #9ca3af;
+
+    --palette-1: #6366f1; --palette-2: #8b5cf6; --palette-3: #ec4899; --palette-4: #06b6d4;
+    --palette-5: #f97316; --palette-6: #14b8a6; --palette-7: #f43f5e; --palette-8: #3b82f6;
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #0a0a0a;
+        --text-color: #ffffff;
+        --accent-color: #a1a1a1;
+        --meta-color: #888888;
+        
+        --glass-overlay: rgba(0, 0, 0, 0.2);
+        --card-bg: rgba(20, 20, 20, 0.6);
+        --card-border: rgba(255, 255, 255, 0.05);
+        --spotlight-color: rgba(255, 255, 255, 0.2);
+        
+        --card-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        
+        --orb-color-1: rgba(255, 255, 255, 0.06);
+        --orb-color-2: rgba(255, 255, 255, 0.03);
+
+        --palette-1: #818cf8; --palette-2: #a78bfa; --palette-3: #f472b6; --palette-4: #22d3ee;
+        --palette-5: #fb923c; --palette-6: #2dd4bf; --palette-7: #fb7185; --palette-8: #60a5fa;
+    }
+}
+
+/* --- 2. Global Resets & Body --- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+    transition: background-color 0.8s ease, color 0.8s ease;
+    position: relative;
+}
+
+/* --- 3. Background Animations (Orbs) --- */
+.background-orbs {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    overflow: hidden; z-index: -2; pointer-events: none;
+}
+.orb {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.8;
+    animation: float 25s infinite ease-in-out alternate;
+}
+.orb-1 { width: 70vw; height: 70vw; background: var(--orb-color-1); top: -15%; left: -15%; animation-duration: 35s; }
+.orb-2 { width: 60vw; height: 60vw; background: var(--orb-color-2); bottom: -15%; right: -15%; animation-duration: 45s; animation-delay: -5s; }
+@keyframes float {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(40px, 60px) scale(1.1); }
+    100% { transform: translate(-30px, 20px) scale(0.95); }
+}
+
+.frosted-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1;
+    backdrop-filter: blur(60px) saturate(120%);
+    -webkit-backdrop-filter: blur(60px) saturate(120%);
+    background: var(--glass-overlay); pointer-events: none;
+}
+
+/* --- 4. Layout & Spotlight Cards --- */
+main {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    padding: var(--spacing-unit); z-index: 10;
+}
+
+.content-wrapper {
+    width: 100%; max-width: 1400px; 
+    display: flex; flex-direction: column; align-items: center;
+}
+
+header {
+    text-align: center; margin-bottom: 3rem; margin-top: 1rem;
+    animation: fadeInDown 1s var(--ease-out-expo) forwards;
+    position: relative;
+    width: 100%;
+}
+
+.title {
+    font-size: 3rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, var(--text-color) 0%, var(--accent-color) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    display: flex; align-items: center; justify-content: center; gap: 1rem; flex-wrap: wrap;
+}
+
+.subtitle { font-size: 1.1rem; color: var(--accent-color); font-weight: 400; }
+
+.badge {
+    font-size: 0.8rem; padding: 0.3em 0.8em; border-radius: 100px;
+    color: #fff; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    -webkit-text-fill-color: #fff; 
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+    display: none;
+}
+.badge-global { background: linear-gradient(135deg, #7c3aed, #6d28d9); }
+.badge-instance { background: linear-gradient(135deg, #059669, #047857); }
+
+/* Grid */
+.dynamic-grid {
+    display: grid; grid-template-columns: repeat(12, 1fr);
+    gap: 1.5rem; width: 100%;
+}
+.col-half { grid-column: span 6; }
+.col-full { grid-column: span 12; }
+
+/* Spotlight Card Styles */
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 24px;
+    padding: 2rem;
+    box-shadow: var(--card-shadow);
+    position: relative;
+    overflow: hidden; /* Important for spotlight containment */
+    
+    /* 核心动画属性：背景色、阴影、变换 */
+    transition: 
+        transform 0.4s var(--ease-out-expo), 
+        box-shadow 0.4s var(--ease-out-expo),
+        background-color 0.4s ease;
+        
+    opacity: 0; animation: fadeInUp 0.8s var(--ease-out-expo) forwards;
+    
+    /* Prepare variables for spotlight (updated via JS) */
+    --mouse-x: -500px;
+    --mouse-y: -500px;
+}
+
+/* 充能效果 (Charging Effect) */
+.card:hover {
+    transform: translateY(-2px);
+    
+    /* 1. 背景提亮 (通过改变背景色透明度或叠加层) */
+    /* Light Mode: 变白; Dark Mode: 变亮灰 */
+    /* 我们直接利用 CSS 变量在 hover 状态下的微调 */
+    
+    /* 2. 外发光 (Glow) */
+    box-shadow: 
+        0 10px 40px rgba(0,0,0,0.1), /* 基础阴影 */
+        0 0 20px var(--spotlight-color); /* 发光光晕 */
+}
+
+/* Light Mode Hover Brightness */
+@media (prefers-color-scheme: light) {
+    .card:hover {
+        background-color: rgba(255, 255, 255, 0.9); /* 更不透明，更亮 */
+        border-color: rgba(0, 0, 0, 0.1);
+    }
+}
+
+/* Dark Mode Hover Brightness */
+@media (prefers-color-scheme: dark) {
+    .card:hover {
+        background-color: rgba(30, 30, 30, 0.75); /* 稍微提亮 */
+        border-color: rgba(255, 255, 255, 0.15);
+    }
+}
+
+
+/* The Spotlight Glow Effect (Overlay - Mouse Follow) */
+.card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 24px;
+    padding: 1px; /* Border thickness */
+    background: radial-gradient(
+        800px circle at var(--mouse-x) var(--mouse-y), 
+        var(--spotlight-color), 
+        transparent 40%
+    );
+    -webkit-mask: 
+        linear-gradient(#fff 0 0) content-box, 
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+/* Subtle inner glow */
+.card::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 24px;
+    background: radial-gradient(
+        600px circle at var(--mouse-x) var(--mouse-y), 
+        rgba(255,255,255, 0.05), 
+        transparent 40%
+    );
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+}
+
+.card:hover::before, .card:hover::after { opacity: 1; }
+
+/* Metrics & Charts */
+.metric-group { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; position: relative; z-index: 2; }
+.metric-value {
+    font-size: 4.5rem; font-weight: 800; line-height: 1;
+    background: linear-gradient(180deg, var(--text-color) 20%, var(--accent-color) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    font-variant-numeric: tabular-nums; margin-bottom: 0.5rem;
+}
+.metric-label { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--meta-color); font-weight: 600; }
+
+.card-title {
+    font-size: 1rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--meta-color); margin-bottom: 1.5rem; font-weight: 600; 
+    border-bottom: 1px solid var(--card-border); padding-bottom: 1rem; display: block;
+    position: relative; z-index: 2;
+}
+
+.stats-list { display: flex; flex-direction: column; gap: 1.2rem; position: relative; z-index: 2; }
+.stat-item { width: 100%; }
+.stat-header { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.95rem; font-weight: 500; color: var(--text-color); }
+.stat-name { font-family: monospace; opacity: 0.9; }
+.progress-track { width: 100%; height: 8px; background-color: rgba(0, 0, 0, 0.05); border-radius: 4px; overflow: hidden; position: relative; z-index: 1; }
+@media (prefers-color-scheme: dark) { .progress-track { background-color: rgba(255, 255, 255, 0.1); } }
+.progress-bar { height: 100%; border-radius: 4px; transition: width 1.2s cubic-bezier(0.2, 0.8, 0.2, 1); width: 0%; box-shadow: 0 0 10px rgba(0,0,0,0.1); position: relative; z-index: 2; }
+.empty-state { text-align: center; color: var(--meta-color); padding: 3rem; font-style: italic; opacity: 0.6; }
+
+/* --- 5. Language Selector --- */
+.lang-container { position: absolute; top: 2rem; right: 2rem; z-index: 100; }
+.lang-btn {
+    background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-color);
+    padding: 0.6rem 1.2rem; border-radius: 100px; font-family: inherit; font-weight: 600; font-size: 0.9rem;
+    cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+    box-shadow: var(--card-shadow); backdrop-filter: blur(10px); transition: all 0.3s ease;
+}
+.lang-btn:hover, .lang-btn.active { background: var(--text-color); color: var(--bg-color); transform: translateY(-2px); }
+.lang-icon { width: 16px; height: 16px; fill: currentColor; }
+.lang-menu {
+    position: absolute; top: calc(100% + 10px); right: 0; background: var(--card-bg);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--card-border); border-radius: 16px; padding: 0.5rem; min-width: 160px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.15); opacity: 0; transform: translateY(-10px) scale(0.95);
+    pointer-events: none; transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lang-menu.open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+.lang-option {
+    display: block; width: 100%; text-align: left; padding: 0.6rem 1rem; border: none; background: transparent;
+    color: var(--text-color); font-family: inherit; font-size: 0.9rem; font-weight: 500; cursor: pointer; border-radius: 10px; transition: background 0.2s;
+}
+.lang-option:hover { background: rgba(125, 125, 125, 0.1); }
+.lang-option.selected { color: var(--accent-color); font-weight: 700; }
+
+/* --- 6. Login Modal --- */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(15px); display: flex; align-items: center; justify-content: center;
+    z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.5s ease;
+}
+.modal-overlay.active { opacity: 1; pointer-events: auto; }
+.login-card {
+    background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 24px; padding: 3rem;
+    width: 90%; max-width: 400px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); text-align: center;
+    transform: scale(0.95); transition: transform 0.5s var(--ease-out-expo);
+}
+.modal-overlay.active .login-card { transform: scale(1); }
+.login-title { font-size: 1.8rem; font-weight: 800; margin-bottom: 1rem; color: var(--text-color); }
+.login-desc { color: var(--meta-color); margin-bottom: 2rem; font-size: 0.95rem; }
+.login-input {
+    width: 100%; padding: 1rem; margin-bottom: 1rem; border: 1px solid var(--card-border); border-radius: 12px;
+    background: rgba(255,255,255,0.2); color: var(--text-color); font-size: 1rem; outline: none; transition: border-color 0.3s;
+}
+.login-input:focus { border-color: var(--accent-color); background: rgba(255,255,255,0.4); }
+.login-btn {
+    width: 100%; padding: 1rem; border-radius: 100px; border: none; background: var(--text-color); color: var(--bg-color);
+    font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.2s;
+}
+.login-btn:hover { transform: scale(1.02); }
+.error-msg { color: var(--color-5xx); margin-bottom: 1rem; font-size: 0.9rem; min-height: 1.2em; display: none; }
+footer { margin-top: 4rem; text-align: center; font-size: 0.85rem; color: var(--meta-color); opacity: 0; animation: fadeIn 1s ease forwards 1s; }
+
+/* --- Responsive & Mobile Fixes --- */
+@media (max-width: 1024px) { .col-half { grid-column: span 12; } }
+
+@media (max-width: 768px) {
+    /* Mobile Layout Fix for Header */
+    header { margin-top: 4rem; /* Push header down to clear fixed lang button */ }
+    
+    .title { font-size: 2rem; flex-direction: column; gap: 0.5rem; }
+    .content-wrapper { padding: 0 1rem; }
+    .card { padding: 1.5rem; border-radius: 20px; }
+    .metric-value { font-size: 3.5rem; }
+    
+    /* Ensure Lang Button doesn't overlap */
+    .lang-container { top: 1rem; right: 1rem; }
+}
+
+@media (max-width: 480px) {
+    .lang-btn span { display: none; } /* Hide text, only icon */
+    .lang-btn { padding: 0.6rem; border-radius: 50%; }
+}
+
+@keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { to { opacity: 0.7; } }
