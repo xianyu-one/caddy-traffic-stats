@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Caddy Traffic Dashboard</title>
     <style>
-        /* --- 1. Core Variables (From your provided style) --- */
+        /* --- 1. Core Variables --- */
         :root {
             /* Light Mode */
             --bg-color: #ffffff;
@@ -31,23 +31,21 @@
             --font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Inter', "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             --spacing-unit: 1.5rem;
 
-            /* --- Data Visualization Palette (New) --- */
-            /* Status Code Colors (Semantic) */
-            --color-2xx: #10b981; /* Emerald */
-            --color-3xx: #3b82f6; /* Blue */
-            --color-4xx: #f59e0b; /* Amber */
-            --color-5xx: #ef4444; /* Red */
-            --color-other: #9ca3af; /* Gray */
+            /* --- Data Visualization Palette --- */
+            --color-2xx: #10b981;
+            --color-3xx: #3b82f6;
+            --color-4xx: #f59e0b;
+            --color-5xx: #ef4444;
+            --color-other: #9ca3af;
 
-            /* Dynamic Palette (For general data) */
-            --palette-1: #6366f1; /* Indigo */
-            --palette-2: #8b5cf6; /* Violet */
-            --palette-3: #ec4899; /* Pink */
-            --palette-4: #06b6d4; /* Cyan */
-            --palette-5: #f97316; /* Orange */
-            --palette-6: #14b8a6; /* Teal */
-            --palette-7: #f43f5e; /* Rose */
-            --palette-8: #3b82f6; /* Blue */
+            --palette-1: #6366f1;
+            --palette-2: #8b5cf6;
+            --palette-3: #ec4899;
+            --palette-4: #06b6d4;
+            --palette-5: #f97316;
+            --palette-6: #14b8a6;
+            --palette-7: #f43f5e;
+            --palette-8: #3b82f6;
         }
 
         /* Dark Mode */
@@ -66,7 +64,6 @@
                 --orb-color-1: rgba(255, 255, 255, 0.06);
                 --orb-color-2: rgba(255, 255, 255, 0.03);
 
-                /* Adjust palette for dark mode contrast if needed */
                 --palette-1: #818cf8;
                 --palette-2: #a78bfa;
                 --palette-3: #f472b6;
@@ -131,7 +128,6 @@
 
         .content-wrapper {
             width: 100%;
-            /* Optimized Width: Increased from 900px to 1400px for better desktop usage */
             max-width: 1400px; 
             display: flex; flex-direction: column; align-items: center;
         }
@@ -155,7 +151,7 @@
         .badge {
             font-size: 0.8rem; padding: 0.3em 0.8em; border-radius: 100px;
             color: #fff; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-            -webkit-text-fill-color: #fff; /* Reset gradient text */
+            -webkit-text-fill-color: #fff; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.1);
             transform: translateY(-2px);
             display: none;
@@ -166,7 +162,7 @@
         /* --- 5. Grid & Cards --- */
         .dynamic-grid {
             display: grid;
-            grid-template-columns: repeat(12, 1fr); /* 12 column grid for flexibility */
+            grid-template-columns: repeat(12, 1fr);
             gap: 1.5rem;
             width: 100%;
         }
@@ -181,7 +177,7 @@
             padding: 2rem;
             box-shadow: var(--card-shadow);
             transition: transform 0.4s var(--ease-out-expo), box-shadow 0.4s var(--ease-out-expo);
-            opacity: 0; /* For animation */
+            opacity: 0;
             animation: fadeInUp 0.8s var(--ease-out-expo) forwards;
         }
 
@@ -191,7 +187,6 @@
             border-color: var(--accent-color);
         }
 
-        /* Metrics Styling */
         .metric-group {
             display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;
         }
@@ -207,7 +202,6 @@
             color: var(--meta-color); font-weight: 600;
         }
 
-        /* Chart/List Styling */
         .card-title {
             font-size: 1rem; text-transform: uppercase; letter-spacing: 0.1em;
             color: var(--meta-color); margin-bottom: 1.5rem; font-weight: 600; border-bottom: 1px solid var(--card-border);
@@ -225,7 +219,6 @@
         .progress-track {
             width: 100%; height: 8px; background-color: rgba(0, 0, 0, 0.05);
             border-radius: 4px; overflow: hidden;
-            /* Added explicit z-index context */
             position: relative;
             z-index: 1;
         }
@@ -235,14 +228,13 @@
             height: 100%; border-radius: 4px;
             transition: width 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
             width: 0%; box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            /* Ensure bar is above track background */
             position: relative;
             z-index: 2;
         }
 
         .empty-state { text-align: center; color: var(--meta-color); padding: 3rem; font-style: italic; opacity: 0.6; }
 
-        /* --- 6. Modern Language Selector (Custom Dropdown) --- */
+        /* --- 6. Language Selector --- */
         .lang-container {
             position: absolute; top: 2rem; right: 2rem; z-index: 100;
         }
@@ -295,18 +287,60 @@
         .lang-option:hover { background: rgba(125, 125, 125, 0.1); }
         .lang-option.selected { color: var(--accent-color); font-weight: 700; }
 
-        /* --- 7. Footer --- */
+        /* --- 7. Login Modal (New) --- */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(15px);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+
+        .login-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 3rem;
+            width: 90%; max-width: 400px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+            text-align: center;
+            transform: scale(0.95); transition: transform 0.5s var(--ease-out-expo);
+        }
+        .modal-overlay.active .login-card { transform: scale(1); }
+
+        .login-title { font-size: 1.8rem; font-weight: 800; margin-bottom: 1rem; color: var(--text-color); }
+        .login-desc { color: var(--meta-color); margin-bottom: 2rem; font-size: 0.95rem; }
+
+        .login-input {
+            width: 100%; padding: 1rem; margin-bottom: 1rem;
+            border: 1px solid var(--card-border); border-radius: 12px;
+            background: rgba(255,255,255,0.2); color: var(--text-color);
+            font-size: 1rem; outline: none; transition: border-color 0.3s;
+        }
+        .login-input:focus { border-color: var(--accent-color); background: rgba(255,255,255,0.4); }
+
+        .login-btn {
+            width: 100%; padding: 1rem; border-radius: 100px; border: none;
+            background: var(--text-color); color: var(--bg-color);
+            font-size: 1rem; font-weight: 600; cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .login-btn:hover { transform: scale(1.02); }
+        
+        .error-msg { color: var(--color-5xx); margin-bottom: 1rem; font-size: 0.9rem; min-height: 1.2em; display: none; }
+
+        /* --- 8. Footer --- */
         footer {
             margin-top: 4rem; text-align: center;
             font-size: 0.85rem; color: var(--meta-color); opacity: 0;
             animation: fadeIn 1s ease forwards 1s;
         }
 
-        /* --- 8. Responsive Design --- */
-        @media (max-width: 1024px) {
-            .col-half { grid-column: span 12; }
-        }
-
+        /* --- Responsive --- */
+        @media (max-width: 1024px) { .col-half { grid-column: span 12; } }
         @media (max-width: 768px) {
             .title { font-size: 2rem; }
             .lang-container { top: 1.5rem; right: 1.5rem; }
@@ -314,25 +348,14 @@
             .card { padding: 1.5rem; border-radius: 20px; }
             .metric-value { font-size: 3.5rem; }
         }
-
-        /* Mobile specific adjustments for language selector */
         @media (max-width: 480px) {
-            .lang-btn span { display: none; } /* Hide text, show only icon on tiny screens */
+            .lang-btn span { display: none; }
             .lang-btn { padding: 0.6rem; border-radius: 50%; }
         }
 
-        /* --- Animations Keyframes --- */
-        @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(40px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeIn {
-            to { opacity: 0.7; }
-        }
+        @keyframes fadeInDown { from { opacity: 0; transform: translateY(-30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { to { opacity: 0.7; } }
     </style>
 </head>
 <body>
@@ -344,7 +367,20 @@
     </div>
     <div class="frosted-overlay"></div>
 
-    <!-- Language Selector (Modern) -->
+    <!-- Login Modal -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="login-card">
+            <h2 class="login-title">Locked</h2>
+            <p class="login-desc">Please enter your password to view traffic statistics.</p>
+            <form onsubmit="handleLogin(event)">
+                <div class="error-msg" id="loginError">Incorrect password</div>
+                <input type="password" id="passwordInput" class="login-input" placeholder="Password" required>
+                <button type="submit" class="login-btn">Unlock Dashboard</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Language Selector -->
     <div class="lang-container">
         <button class="lang-btn" id="langBtn" onclick="toggleLangMenu()">
             <svg class="lang-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
@@ -368,9 +404,7 @@
                 <p class="subtitle" data-i18n="subtitle">Real-time Monitoring Dashboard</p>
             </header>
 
-            <!-- Dynamic Content Container -->
             <div id="dashboardContent" class="dynamic-grid">
-                <!-- Cards will be injected here by JS -->
                 <div class="col-full empty-state" id="loadingState">Loading configuration...</div>
             </div>
 
@@ -459,37 +493,17 @@
             }
         };
 
-        const langLabels = {
-            "en": "English",
-            "zh-CN": "简体中文",
-            "zh-TW": "繁體中文",
-            "ja": "日本語"
-        };
+        const langLabels = { "en": "English", "zh-CN": "简体中文", "zh-TW": "繁體中文", "ja": "日本語" };
 
-        // --- Global State ---
         let currentLang = 'en';
         let dashboardConfig = null;
         let currentStats = null;
-
-        // --- Color Palette System ---
-        // Names of CSS variables defined in :root
-        const colorPalette = [
-            '--palette-1', // Indigo
-            '--palette-2', // Violet
-            '--palette-3', // Pink
-            '--palette-4', // Cyan
-            '--palette-5', // Orange
-            '--palette-6', // Teal
-            '--palette-7', // Rose
-            '--palette-8'  // Blue
-        ];
+        const colorPalette = ['--palette-1', '--palette-2', '--palette-3', '--palette-4', '--palette-5', '--palette-6', '--palette-7', '--palette-8'];
 
         // --- Language UI Logic ---
         function toggleLangMenu() {
-            const menu = document.getElementById('langMenu');
-            const btn = document.getElementById('langBtn');
-            menu.classList.toggle('open');
-            btn.classList.toggle('active');
+            document.getElementById('langMenu').classList.toggle('open');
+            document.getElementById('langBtn').classList.toggle('active');
         }
 
         function selectLanguage(lang) {
@@ -498,23 +512,27 @@
             document.getElementById('langBtn').classList.remove('active');
         }
 
-        // Close menu when clicking outside
         document.addEventListener('click', function(event) {
-            const container = document.querySelector('.lang-container');
-            if (!container.contains(event.target)) {
+            if (!document.querySelector('.lang-container').contains(event.target)) {
                 document.getElementById('langMenu').classList.remove('open');
                 document.getElementById('langBtn').classList.remove('active');
             }
         });
 
-        // --- Core Logic ---
+        // --- Auth & Init Logic ---
 
         async function initDashboard() {
             detectLanguage();
             
             try {
-                // Mock for standalone testing if needed, usually fetches from ./discovery
+                // 尝试获取配置，如果返回 401 则弹出登录框
                 const configRes = await fetch('./discovery');
+                
+                if (configRes.status === 401) {
+                    showLoginModal();
+                    return;
+                }
+                
                 if (!configRes.ok) throw new Error("Failed to fetch config");
                 dashboardConfig = await configRes.json();
                 
@@ -526,42 +544,53 @@
                 setInterval(fetchData, 60000);
 
             } catch (err) {
-                // If local testing without backend, show mock error or fallback
-                console.warn("Using mock data due to error:", err);
-                useMockData(); // Fallback for demonstration
+                console.warn("Using mock data (if available) or error:", err);
             }
         }
 
-        // Fallback for preview purposes only
-        function useMockData() {
-            dashboardConfig = {
-                scope: "global",
-                layout: [
-                    { id: "req", type: "metric", title_key: "total_requests", data_key: "total_requests" },
-                    { id: "ws", type: "metric", title_key: "total_websockets", data_key: "total_websockets" },
-                    { id: "res", type: "chart", title_key: "response_codes", data_key: "response_codes", color_mode: "status_code" },
-                    { id: "proto", type: "chart", title_key: "http_protocols", data_key: "http_protocols" },
-                    { id: "tls", type: "chart", title_key: "tls_version", data_key: "tls_version" }
-                ]
-            };
-            renderScopeBadge("global");
-            buildLayout(dashboardConfig.layout);
-            applyTranslations();
+        function showLoginModal() {
+            document.getElementById('loginModal').classList.add('active');
+            document.getElementById('loadingState').innerText = "Authentication required";
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const password = document.getElementById('passwordInput').value;
+            const errorMsg = document.getElementById('loginError');
             
-            // Simulate data fetch
-            currentStats = {
-                total_requests: 12450,
-                total_websockets: 32,
-                response_codes: { "200": 11000, "404": 200, "500": 50, "301": 1200 },
-                http_protocols: { "HTTP/1.1": 4000, "HTTP/2.0": 8000, "HTTP/3": 450 },
-                tls_version: { "TLS 1.2": 2500, "TLS 1.3": 9500, "TLS 1.0": 10 }
-            };
-            updateDashboardValues();
+            try {
+                const res = await fetch('./login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password })
+                });
+
+                if (res.ok) {
+                    // Login success, hide modal and reload
+                    document.getElementById('loginModal').classList.remove('active');
+                    errorMsg.style.display = 'none';
+                    initDashboard(); // Retry initialization
+                } else {
+                    errorMsg.style.display = 'block';
+                    errorMsg.innerText = "Incorrect password";
+                    // Shake animation
+                    const card = document.querySelector('.login-card');
+                    card.style.transform = 'translateX(10px)';
+                    setTimeout(() => card.style.transform = '', 100);
+                }
+            } catch (err) {
+                errorMsg.style.display = 'block';
+                errorMsg.innerText = "Connection failed";
+            }
         }
 
         async function fetchData() {
             try {
                 const res = await fetch('./data');
+                if (res.status === 401) {
+                    showLoginModal(); // Re-auth needed
+                    return;
+                }
                 if (!res.ok) return;
                 currentStats = await res.json();
                 updateDashboardValues();
@@ -583,10 +612,7 @@
 
             layoutItems.forEach((item, index) => {
                 const cardWrapper = document.createElement('div');
-                // Use 'col-half' (half width) or 'col-full' (full width)
                 cardWrapper.className = `card ${item.grid_width === 'half' ? 'col-half' : 'col-full'}`;
-                
-                // Add staggered animation delay
                 cardWrapper.style.animationDelay = `${index * 0.1}s`;
 
                 if (item.type === 'metric') {
@@ -641,26 +667,16 @@
                 const percentage = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
                 
                 let colorVar;
-
-                // Logic Updated: 
-                // We intentionally ignore 'static' color mode to enforce dynamic palette cycling for all non-status-code charts.
-                // This ensures new metrics automatically get colorful bars without manual config.
-
-                // Priority 1: Status Code Semantic Coloring
                 if (configItem.color_mode === 'status_code') {
                     if (key.startsWith('2')) colorVar = 'var(--color-2xx)';
                     else if (key.startsWith('3')) colorVar = 'var(--color-3xx)';
                     else if (key.startsWith('4')) colorVar = 'var(--color-4xx)';
                     else if (key.startsWith('5')) colorVar = 'var(--color-5xx)';
                     else {
-                        // Fallback to palette for non-standard keys in status code chart
                         const paletteColor = colorPalette[index % colorPalette.length];
                         colorVar = `var(${paletteColor})`;
                     }
-                } 
-                // Priority 2: Dynamic Palette (Default for everything else)
-                else {
-                    // Cycle through the palette based on index
+                } else {
                     const paletteColor = colorPalette[index % colorPalette.length];
                     colorVar = `var(${paletteColor})`;
                 }
@@ -688,20 +704,14 @@
             if (!el) return;
             const current = parseInt(el.innerText.replace(/,/g, '')) || 0;
             if (current === endValue) return;
-
-            // Simple ease-out counter
             const duration = 1000;
             const startTime = performance.now();
-
             function update(currentTime) {
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
-                // Ease out quart
                 const ease = 1 - Math.pow(1 - progress, 4);
-                
                 const val = Math.floor(current + (endValue - current) * ease);
                 el.innerText = val.toLocaleString();
-
                 if (progress < 1) requestAnimationFrame(update);
                 else el.innerText = endValue.toLocaleString();
             }
@@ -736,8 +746,6 @@
         function updateLangUI(lang) {
             document.documentElement.lang = lang;
             document.getElementById('currentLangLabel').innerText = langLabels[lang] || lang;
-            
-            // Highlight selected
             document.querySelectorAll('.lang-option').forEach(opt => {
                 opt.classList.remove('selected');
                 if(opt.getAttribute('onclick').includes(lang)) opt.classList.add('selected');

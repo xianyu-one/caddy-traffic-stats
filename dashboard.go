@@ -1,8 +1,13 @@
 package trafficstats
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/tls"
 	_ "embed"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -10,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
@@ -24,7 +30,6 @@ var dashboardHTML string
 // --- 全局变量与初始化 ---
 
 var (
-	// globalStats 存储全局聚合统计数据
 	globalStats      = newStatsData()
 	globalMu         sync.RWMutex
 	globalMaxEntries = 100000
@@ -38,7 +43,6 @@ func init() {
 
 // --- 数据结构定义 ---
 
-// StatsData 核心统计数据结构
 type StatsData struct {
 	TotalRequests   int            `json:"TotalRequests"`
 	TotalWebSockets int            `json:"TotalWebSockets"`
@@ -46,28 +50,34 @@ type StatsData struct {
 	Codes           map[string]int `json:"Codes"`
 	TLSVersions     map[string]int `json:"TLSVersions"`
 	CipherSuites    map[string]int `json:"CipherSuites"`
-	Curves          map[string]int `json:"Curves"` // Go 1.24+
+	Curves          map[string]int `json:"Curves"`
 	Transports      map[string]int `json:"Transports"`
 	IPVersions      map[string]int `json:"IPVersions"`
 	ALPN            map[string]int `json:"ALPN"`
 	HSTS            map[string]int `json:"HSTS"`
 }
 
-// LayoutItem 定义前端卡片的布局和属性
 type LayoutItem struct {
 	ID        string `json:"id"`
-	Type      string `json:"type"`                 // "metric" (数字) 或 "chart" (条形图)
-	TitleKey  string `json:"title_key"`            // i18n 键值
-	DataKey   string `json:"data_key"`             // 对应 StatsData 中的字段名
-	GridWidth string `json:"grid_width"`           // "half" 或 "full"
-	ColorVar  string `json:"color_var,omitempty"`  // CSS 变量名 (用于单一颜色)
-	ColorMode string `json:"color_mode,omitempty"` // "static" 或 "status_code" (用于动态颜色)
+	Type      string `json:"type"`
+	TitleKey  string `json:"title_key"`
+	DataKey   string `json:"data_key"`
+	GridWidth string `json:"grid_width"`
+	ColorVar  string `json:"color_var,omitempty"`
+	ColorMode string `json:"color_mode,omitempty"`
 }
 
-// DiscoveryResponse 服务发现响应结构
 type DiscoveryResponse struct {
 	Scope  string       `json:"scope"`
 	Layout []LayoutItem `json:"layout"`
+}
+
+type LoginRequest struct {
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
 }
 
 func newStatsData() *StatsData {
@@ -89,13 +99,21 @@ type Dashboard struct {
 	Path           string `json:"path,omitempty"`
 	Scope          string `json:"scope,omitempty"`
 	MaxMemoryMB    int    `json:"max_memory_mb,omitempty"`
-	EnableServe    bool   `json:"enable_serve,omitempty"`
 	DisableCollect bool   `json:"disable_collect,omitempty"`
 
+	// Serve 选项
+	EnableServe  bool `json:"enable_serve,omitempty"`
+	ServeAPIOnly bool `json:"serve_api_only,omitempty"`
+	ServeSecure  bool `json:"serve_secure,omitempty"`
+	// FIX: 将 json tag 从 "-" 改为 "password_hash,omitempty"，确保配置能传递给运行时
+	PasswordHash string `json:"password_hash,omitempty"`
+
+	// 运行时内部状态
 	logger        *zap.Logger
 	instanceStats *StatsData
 	instanceMu    sync.RWMutex
 	maxEntries    int
+	jwtSecret     []byte // 用于签名 Token
 }
 
 func (Dashboard) CaddyModule() caddy.ModuleInfo {
@@ -110,6 +128,17 @@ func (d *Dashboard) Provision(ctx caddy.Context) error {
 	d.provisionDefaults()
 	d.provisionLimits()
 	d.instanceStats = newStatsData()
+
+	// 优化: 使用 PasswordHash 生成稳定的密钥
+	// 这样 Caddy reload 配置时，用户的登录状态不会丢失
+	if d.PasswordHash != "" {
+		// 使用 Hash 本身作为密钥种子
+		d.jwtSecret = []byte(d.PasswordHash)
+	} else {
+		// 如果没有密码（未开启安全模式），生成一个临时的
+		d.jwtSecret = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	}
+
 	return nil
 }
 
@@ -134,29 +163,144 @@ func (d *Dashboard) provisionLimits() {
 }
 
 func (d *Dashboard) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	// 1. 处理 Serve 逻辑 (Dashboard 服务)
 	if d.EnableServe {
 		if strings.HasPrefix(r.URL.Path, d.Path) {
-			// 1. 静态 HTML 页面
+			// 如果开启了 Secure，进行权限检查
+			if d.ServeSecure {
+				isLoginEndpoint := r.URL.Path == d.Path+"/login"
+				isStaticPage := r.URL.Path == d.Path || r.URL.Path == d.Path+"/"
+
+				// 判断是否应该跳过验证:
+				// 1. Login 接口总是允许访问
+				// 2. 如果不是 API-Only 模式，允许未验证访问主页 HTML
+				skipAuth := isLoginEndpoint || (!d.ServeAPIOnly && isStaticPage)
+
+				if !skipAuth {
+					if !d.checkAuth(r) {
+						w.Header().Set("WWW-Authenticate", `Bearer realm="Dashboard"`)
+						http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+						return nil
+					}
+				}
+			}
+
+			// 路由分发
 			if r.URL.Path == d.Path || r.URL.Path == d.Path+"/" {
+				if d.ServeAPIOnly {
+					http.Error(w, "Web dashboard is disabled (API Only mode)", http.StatusNotFound)
+					return nil
+				}
 				return d.serveStatic(w)
 			}
-			// 2. 数据 API
 			if r.URL.Path == d.Path+"/data" {
 				return d.serveData(w)
 			}
-			// 3. 发现/配置 API
 			if r.URL.Path == d.Path+"/discovery" {
 				return d.serveDiscovery(w)
+			}
+			if r.URL.Path == d.Path+"/login" && r.Method == http.MethodPost {
+				return d.serveLogin(w, r)
 			}
 		}
 	}
 
+	// 2. 处理采集逻辑
 	if d.DisableCollect {
 		return next.ServeHTTP(w, r)
 	}
 
 	return d.collectAndServe(w, r, next)
 }
+
+// --- 安全与认证逻辑 ---
+
+func (d *Dashboard) checkAuth(r *http.Request) bool {
+	tokenString := ""
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	if tokenString == "" {
+		cookie, err := r.Cookie("caddy_stats_token")
+		if err == nil {
+			tokenString = cookie.Value
+		}
+	}
+	if tokenString == "" {
+		return false
+	}
+	return d.verifyToken(tokenString)
+}
+
+func (d *Dashboard) serveLogin(w http.ResponseWriter, r *http.Request) error {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return nil
+	}
+
+	// 1. 计算输入密码的哈希
+	inputHash := sha256.Sum256([]byte(req.Password))
+	inputHashHex := hex.EncodeToString(inputHash[:])
+
+	// 2. 比对哈希 (防止时序攻击)
+	// 如果 d.PasswordHash 为空 (因配置丢失)，这里永远返回 0 (失败)
+	if subtle.ConstantTimeCompare([]byte(inputHashHex), []byte(d.PasswordHash)) != 1 {
+		// 简单的防爆破延迟
+		time.Sleep(500 * time.Millisecond)
+		http.Error(w, `{"error": "Invalid password"}`, http.StatusUnauthorized)
+		return nil
+	}
+
+	// 3. 验证成功，生成 Token
+	token := d.generateToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "caddy_stats_token",
+		Value:    token,
+		Path:     d.Path,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   86400,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(w).Encode(LoginResponse{Token: token})
+}
+
+func (d *Dashboard) generateToken() string {
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	mac := hmac.New(sha256.New, d.jwtSecret)
+	mac.Write([]byte(ts))
+	signature := base64.URLEncoding.EncodeToString(mac.Sum(nil))
+	return fmt.Sprintf("%s.%s", ts, signature)
+}
+
+func (d *Dashboard) verifyToken(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return false
+	}
+	tsStr := parts[0]
+	sig := parts[1]
+
+	ts, err := strconv.ParseInt(tsStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	// Token 有效期 24 小时
+	if time.Now().Unix()-ts > 86400 {
+		return false
+	}
+
+	mac := hmac.New(sha256.New, d.jwtSecret)
+	mac.Write([]byte(tsStr))
+	expectedSig := base64.URLEncoding.EncodeToString(mac.Sum(nil))
+
+	return subtle.ConstantTimeCompare([]byte(sig), []byte(expectedSig)) == 1
+}
+
+// --- 数据采集逻辑 ---
 
 func (d *Dashboard) collectAndServe(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	d.recordRequestInfo(r)
@@ -166,8 +310,6 @@ func (d *Dashboard) collectAndServe(w http.ResponseWriter, r *http.Request, next
 	d.recordResponseInfo(rec, isWSAttempt)
 	return err
 }
-
-// --- 数据采集逻辑 (保持不变) ---
 
 func (d *Dashboard) recordRequestInfo(r *http.Request) {
 	proto := r.Proto
@@ -223,7 +365,6 @@ func safeIncrement(m map[string]int, key string, limit int) {
 	}
 }
 
-// resolveTLSDetails, resolveTransport, resolveIPVersion 保持不变...
 func resolveTLSDetails(state *tls.ConnectionState) (ver, suite, curve, alpn string) {
 	if state == nil {
 		return "No TLS", "No TLS", "None", "None"
@@ -244,7 +385,6 @@ func resolveTLSDetails(state *tls.ConnectionState) (ver, suite, curve, alpn stri
 	if suite == "" {
 		suite = fmt.Sprintf("0x%04x", state.CipherSuite)
 	}
-	// Go 1.24+ check
 	curveID := state.CurveID
 	curve = curveID.String()
 	if curve == "" || strings.HasPrefix(curve, "CurveID(") {
@@ -289,35 +429,24 @@ func resolveIPVersion(remoteAddr string) string {
 
 // --- 服务响应逻辑 ---
 
-// serveStatic 直接返回静态 HTML
 func (d *Dashboard) serveStatic(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// 简单粗暴，直接写回字符串，不再进行模板解析
 	_, err := w.Write([]byte(dashboardHTML))
 	return err
 }
 
-// serveDiscovery 返回 UI 布局配置
 func (d *Dashboard) serveDiscovery(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-	// 定义布局配置 (后端控制前端渲染逻辑)
 	layout := []LayoutItem{
-		// 顶部指标
 		{ID: "reqs", Type: "metric", TitleKey: "total_requests", DataKey: "TotalRequests", GridWidth: "half"},
 		{ID: "ws", Type: "metric", TitleKey: "total_websockets", DataKey: "TotalWebSockets", GridWidth: "half"},
-
-		// 协议与版本
 		{ID: "transport", Type: "chart", TitleKey: "transport", DataKey: "Transports", GridWidth: "half", ColorVar: "--color-transport", ColorMode: "static"},
 		{ID: "tls", Type: "chart", TitleKey: "tls_version", DataKey: "TLSVersions", GridWidth: "half", ColorVar: "--color-tls", ColorMode: "static"},
-
-		// 安全详情
 		{ID: "cipher", Type: "chart", TitleKey: "cipher_suites", DataKey: "CipherSuites", GridWidth: "full", ColorVar: "--color-cipher", ColorMode: "static"},
 		{ID: "alpn", Type: "chart", TitleKey: "alpn", DataKey: "ALPN", GridWidth: "half", ColorVar: "--color-alpn", ColorMode: "static"},
 		{ID: "hsts", Type: "chart", TitleKey: "hsts_status", DataKey: "HSTS", GridWidth: "half", ColorVar: "--color-hsts", ColorMode: "static"},
 		{ID: "curves", Type: "chart", TitleKey: "curves", DataKey: "Curves", GridWidth: "full", ColorVar: "--color-curve", ColorMode: "static"},
-
-		// 其它
 		{ID: "ip", Type: "chart", TitleKey: "ip_version", DataKey: "IPVersions", GridWidth: "full", ColorVar: "--color-ip", ColorMode: "static"},
 		{ID: "proto", Type: "chart", TitleKey: "http_protocols", DataKey: "Protocols", GridWidth: "full", ColorVar: "--color-proto", ColorMode: "static"},
 		{ID: "codes", Type: "chart", TitleKey: "response_codes", DataKey: "Codes", GridWidth: "full", ColorMode: "status_code"},
@@ -331,7 +460,6 @@ func (d *Dashboard) serveDiscovery(w http.ResponseWriter) error {
 	return json.NewEncoder(w).Encode(resp)
 }
 
-// serveData 返回实时统计数据
 func (d *Dashboard) serveData(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	snapshot := d.getSnapshot()
@@ -403,6 +531,23 @@ func (d *Dashboard) UnmarshalCaddyfile(dDisp *caddyfile.Dispenser) error {
 				d.MaxMemoryMB = val
 			case "serve":
 				d.EnableServe = true
+				for dDisp.NextBlock(1) {
+					subDirective := dDisp.Val()
+					switch subDirective {
+					case "api_only":
+						d.ServeAPIOnly = true
+					case "secure":
+						if !dDisp.NextArg() {
+							return dDisp.ArgErr()
+						}
+						d.ServeSecure = true
+						pwd := dDisp.Val()
+						hash := sha256.Sum256([]byte(pwd))
+						d.PasswordHash = hex.EncodeToString(hash[:])
+					default:
+						return dDisp.Errf("unknown sub-option for serve: %s", subDirective)
+					}
+				}
 			case "no_collect":
 				d.DisableCollect = true
 			default:
